@@ -1,0 +1,97 @@
+-- ===========================================
+-- KONFIGURASI PENCATAT ITEM (LOGGER)
+-- ===========================================
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+-- Daftar kontainer yang paling sering digunakan untuk spawning item/model
+-- Anda bisa menambahkan lebih banyak path jika diperlukan.
+local CONTAINERS_TO_MONITOR = {
+    Workspace,
+    ReplicatedStorage
+    -- game:GetService("ServerStorage"), -- ServerStorage biasanya hanya diakses Server, tapi bisa dicoba.
+    -- Workspace:FindFirstChild("LootFolder") -- Contoh jika ada folder khusus loot
+}
+
+-- Kontrol: Waktu tunggu antar log (untuk menghindari spam console)
+local LOG_DEBOUNCE_TIME = 0.05 
+local lastLogTime = 0
+local logCount = 0
+
+-- ===========================================
+-- FUNGSI BANTUAN
+-- ===========================================
+
+-- Mendapatkan informasi dasar dari item
+local function GetItemInfo(item)
+    local location = item.Parent and item.Parent.Name or "NULL"
+    local class = item.ClassName
+    local name = item.Name
+    
+    return string.format(
+        "[%s] '%s' (%s) | Lokasi: %s",
+        class,
+        name,
+        item:GetFullName(),
+        location
+    )
+end
+
+-- ===========================================
+-- FUNGSI UTAMA PENCATAT
+-- ===========================================
+
+local function LogItemSpawn(newItem, container)
+    local currentTime = RunService.Heartbeat:Wait() -- Menggunakan Heartbeat untuk kontrol waktu
+
+    -- Kontrol Debounce (jika ingin membatasi frekuensi output)
+    if currentTime - lastLogTime < LOG_DEBOUNCE_TIME then
+        return
+    end
+
+    -- Filter umum: Abaikan hal-hal yang biasanya bukan 'item' yang menarik
+    if newItem:IsA("Humanoid") or newItem:IsA("Camera") or newItem:IsA("Sound") then
+        return
+    end
+    
+    logCount = logCount + 1
+    
+    local info = GetItemInfo(newItem)
+    
+    print(string.format("--- [ITEM SPAWN #%d] ---", logCount))
+    print(string.format("  > Dideteksi di Kontainer: %s", container.Name))
+    print("  > Item: " .. info)
+    
+    -- Tambahkan informasi fisik jika memungkinkan
+    if newItem:IsA("BasePart") or (newItem:IsA("Model") and newItem.PrimaryPart) then
+        local pos = newItem:IsA("BasePart") and newItem.Position or newItem.PrimaryPart.Position
+        print(string.format("  > Posisi: (%.1f, %.1f, %.1f)", pos.X, pos.Y, pos.Z))
+    end
+    print("----------------------------")
+    
+    lastLogTime = currentTime
+end
+
+-- ===========================================
+-- PENGATURAN MONITORING (LISTENER)
+-- ===========================================
+
+print("--- [PENCATAT ITEM SPAWN AKTIF] ---")
+print(string.format("Memantau: %s", table.concat(
+    table.create(#CONTAINERS_TO_MONITOR, function(i) return CONTAINERS_TO_MONITOR[i].Name end), 
+    ", "
+)))
+print("-----------------------------------")
+
+
+-- Pasang listener ke setiap kontainer yang ditentukan
+for _, container in ipairs(CONTAINERS_TO_MONITOR) do
+    if container then
+        container.ChildAdded:Connect(function(newItem)
+            LogItemSpawn(newItem, container)
+        end)
+    else
+        print(string.format("[PERINGATAN] Kontainer tidak ditemukan: %s", tostring(container)))
+    end
+end
