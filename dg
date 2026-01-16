@@ -1,0 +1,118 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local AttackEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("AttackV2")
+
+-- Konfigurasi Awal
+_G.AutoAttackEnabled = false
+_G.SpeedEnabled = false
+_G.SpeedMultiplier = 1
+local BASE_SPEED = 16
+local ATTACK_RANGE = 200
+local ATTACK_SPEED = 0.01 -- Disarankan 0.01 agar tidak lag/kick
+
+-- 1. Fungsi Filter Musuh (FIXED)
+local function isValidEnemy(target)
+    if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
+        local targetName = target.Name:lower()
+        local isNPCAttr = target:GetAttribute("IsNPC")
+        local mobLevel = target:GetAttribute("MobLevel")
+        
+        -- Filter 1: Cek nama
+        if targetName:find("npc") or targetName:find("%(npc%)") then
+            return false
+        end
+
+        -- Filter 2: Logika perbaikan (Harus return true!)
+        if isNPCAttr ~= true and mobLevel ~= nil then
+            return true
+        end
+        
+        -- Jika game tidak pakai atribut, kita anggap semua di folder Characters adalah musuh
+        return true 
+    end
+    return false
+end
+
+-- 2. GUI Draggable
+local function CreateUI()
+    local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
+    if parent:FindFirstChild("MageNPC_Filter_GUI") then parent.MageNPC_Filter_GUI:Destroy() end
+
+    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_Filter_GUI"; sg.ResetOnSpawn = false
+    local main = Instance.new("Frame", sg)
+    main.Size = UDim2.new(0, 200, 0, 160); main.Position = UDim2.new(0.5, -100, 0.2, 0)
+    main.BackgroundColor3 = Color3.fromRGB(35, 35, 35); main.Active = true; main.Draggable = true 
+
+    local atkBtn = Instance.new("TextButton", main)
+    atkBtn.Size = UDim2.new(1, -20, 0, 40); atkBtn.Position = UDim2.new(0, 10, 0, 10)
+    atkBtn.Text = "AUTO ATTACK: OFF"; atkBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0); atkBtn.TextColor3 = Color3.new(1, 1, 1)
+
+    local speedBtn = Instance.new("TextButton", main)
+    speedBtn.Size = UDim2.new(1, -20, 0, 40); speedBtn.Position = UDim2.new(0, 10, 0, 55)
+    speedBtn.Text = "SPEED: OFF"; speedBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0); speedBtn.TextColor3 = Color3.new(1, 1, 1)
+
+    local label = Instance.new("TextLabel", main)
+    label.Size = UDim2.new(1, 0, 0, 20); label.Position = UDim2.new(0, 0, 0, 100)
+    label.Text = "SPEED: 1x"; label.TextColor3 = Color3.new(1, 1, 1); label.BackgroundTransparency = 1
+
+    local adjBtn = Instance.new("TextButton", main)
+    adjBtn.Size = UDim2.new(1, -20, 0, 30); adjBtn.Position = UDim2.new(0, 10, 0, 125)
+    adjBtn.Text = "SET SPEED (1-5x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); adjBtn.TextColor3 = Color3.new(1, 1, 1)
+
+    atkBtn.MouseButton1Click:Connect(function()
+        _G.AutoAttackEnabled = not _G.AutoAttackEnabled
+        atkBtn.Text = _G.AutoAttackEnabled and "AUTO ATK: ON" or "AUTO ATK: OFF"
+        atkBtn.BackgroundColor3 = _G.AutoAttackEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+    end)
+
+    speedBtn.MouseButton1Click:Connect(function()
+        _G.SpeedEnabled = not _G.SpeedEnabled
+        speedBtn.Text = _G.SpeedEnabled and "SPEED: ON" or "SPEED: OFF"
+        speedBtn.BackgroundColor3 = _G.SpeedEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+    end)
+
+    adjBtn.MouseButton1Click:Connect(function()
+        _G.SpeedMultiplier = _G.SpeedMultiplier + 1
+        if _G.SpeedMultiplier > 5 then _G.SpeedMultiplier = 1 end
+        label.Text = "SPEED: " .. _G.SpeedMultiplier .. "x"
+    end)
+end
+
+-- 3. Loop Serangan Utama
+task.spawn(function()
+    while true do
+        if _G.AutoAttackEnabled then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local charFolder = workspace:FindFirstChild("Characters")
+
+            if root and charFolder then
+                for _, enemy in pairs(charFolder:GetChildren()) do
+                    if isValidEnemy(enemy) then
+                        local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+                        if enemyRoot then
+                            local distance = (root.Position - enemyRoot.Position).Magnitude
+                            if distance <= ATTACK_RANGE then
+                                -- Pastikan remote event dipanggil dengan benar
+                                AttackEvent:FireServer(5, 1, enemy)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(ATTACK_SPEED)
+    end
+end)
+
+-- 4. Loop Speed Modifier
+RunService.Stepped:Connect(function()
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
+    end
+end)
+
+CreateUI()
