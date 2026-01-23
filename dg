@@ -3,92 +3,48 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
+local AttackEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("AttackV2")
 
--- Setup Attack Remotes (V1 to V5)
-local EventsFolder = ReplicatedStorage:WaitForChild("Events")
-local AttackRemotes = {}
-for i = 1, 5 do
-    local name = "AttackV" .. i
-    local event = EventsFolder:FindFirstChild(name)
-    if event then table.insert(AttackRemotes, event) end
-end
-
--- Konfigurasi
+-- Konfigurasi Awal
 _G.AutoAttackEnabled = false
 _G.SpeedEnabled = false
 _G.SpeedMultiplier = 1
 local BASE_SPEED = 16
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.05 
+local ATTACK_SPEED = 0.01 -- Disarankan 0.01 agar tidak lag/kick
 
--- 1. Fungsi Cek Ally (Simplified)
-local function isAlly(target)
-    if not target then return true end
-    
-    -- Cek Folder Allies
-    local alliesFolder = workspace:FindFirstChild("Allies")
-    if alliesFolder and alliesFolder:FindFirstChild(target.Name) then
-        return true
+-- 1. Fungsi Filter Musuh (FIXED)
+local function isValidEnemy(target)
+    if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
+        local targetName = target.Name:lower()
+        local isNPCAttr = target:GetAttribute("IsNPC")
+        local mobLevel = target:GetAttribute("MobLevel")
+        
+        -- Filter 1: Cek nama
+        if targetName:find("npc") or targetName:find("%(npc%)") then
+            return false
+        end
+
+        -- Filter 2: Logika perbaikan (Harus return true!)
+        if isNPCAttr ~= true and mobLevel ~= nil then
+            return true
+        end
+        
+        -- Jika game tidak pakai atribut, kita anggap semua di folder Characters adalah musuh
+        return true 
     end
-
-    -- Cek Nama & Attribute
-    local name = target.Name:lower()
-    if name:find("ally") or name:find("friend") or target:GetAttribute("Team") == "Allies" then
-        return true
-    end
-
     return false
 end
 
--- 2. Ambil Target Terdekat (Simplified & More Aggressive)
-local function getClosestTargets(maxTargets)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return {} end
-
-    local candidates = {}
-    local charFolder = workspace:FindFirstChild("Characters")
-    
-    if charFolder then
-        for _, target in pairs(charFolder:GetChildren()) do
-            -- Pastikan target punya bagian tubuh untuk dipukul
-            local targetRoot = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Head")
-            
-            if target ~= char and targetRoot then
-                local targetPlayer = Players:GetPlayerFromCharacter(target)
-                
-                -- FILTER: Bukan Player Dan Bukan Ally
-                if not targetPlayer and not isAlly(target) then
-                    local dist = (root.Position - targetRoot.Position).Magnitude
-                    if dist <= ATTACK_RANGE then
-                        table.insert(candidates, {
-                            model = target,
-                            dist = dist
-                        })
-                    end
-                end
-            end
-        end
-    end
-    
-    table.sort(candidates, function(a, b) return a.dist < b.dist end)
-    
-    local out = {}
-    for i = 1, math.min(maxTargets, #candidates) do
-        table.insert(out, candidates[i])
-    end
-    return out
-end
-
--- 3. GUI UI
+-- 2. GUI Draggable
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("MageNPC_FIXED_GUI") then parent.MageNPC_FIXED_GUI:Destroy() end
+    if parent:FindFirstChild("MageNPC_Filter_GUI") then parent.MageNPC_Filter_GUI:Destroy() end
 
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_FIXED_GUI"; sg.ResetOnSpawn = false
+    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_Filter_GUI"; sg.ResetOnSpawn = false
     local main = Instance.new("Frame", sg)
     main.Size = UDim2.new(0, 200, 0, 160); main.Position = UDim2.new(0.5, -100, 0.2, 0)
-    main.BackgroundColor3 = Color3.fromRGB(25, 25, 25); main.Active = true; main.Draggable = true 
+    main.BackgroundColor3 = Color3.fromRGB(35, 35, 35); main.Active = true; main.Draggable = true 
 
     local atkBtn = Instance.new("TextButton", main)
     atkBtn.Size = UDim2.new(1, -20, 0, 40); atkBtn.Position = UDim2.new(0, 10, 0, 10)
@@ -125,14 +81,26 @@ local function CreateUI()
     end)
 end
 
--- 4. Attack Loop
+-- 3. Loop Serangan Utama
 task.spawn(function()
     while true do
         if _G.AutoAttackEnabled then
-            local targets = getClosestTargets(3) -- Hajar 3 monster sekaligus
-            for _, data in pairs(targets) do
-                for _, remote in pairs(AttackRemotes) do
-                    remote:FireServer(5, 1, data.model)
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local charFolder = workspace:FindFirstChild("Characters")
+
+            if root and charFolder then
+                for _, enemy in pairs(charFolder:GetChildren()) do
+                    if isValidEnemy(enemy) then
+                        local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+                        if enemyRoot then
+                            local distance = (root.Position - enemyRoot.Position).Magnitude
+                            if distance <= ATTACK_RANGE then
+                                -- Pastikan remote event dipanggil dengan benar
+                                AttackEvent:FireServer(5, 1, enemy)
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -140,7 +108,7 @@ task.spawn(function()
     end
 end)
 
--- 5. Speed
+-- 4. Loop Speed Modifier
 RunService.Stepped:Connect(function()
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         LocalPlayer.Character.Humanoid.WalkSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
