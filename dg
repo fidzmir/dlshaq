@@ -19,32 +19,28 @@ _G.SpeedEnabled = false
 _G.SpeedMultiplier = 1
 local BASE_SPEED = 16
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.07 -- Slightly slower to allow game to process death state
+local ATTACK_SPEED = 0.05 
 
--- 1. Fungsi Cek Ally (Enhanced)
+-- 1. Fungsi Cek Ally (Simplified)
 local function isAlly(target)
-    if not target or not target.Parent then return true end -- Ignore if being deleted
+    if not target then return true end
     
-    -- Cara 1: Nama mengandung kata "Ally" atau "Friend"
-    if string.find(target.Name, "Ally") or string.find(target.Name, "Friend") then
-        return true
-    end
-
-    -- Cara 2: attribute Team = Allies
-    if target:GetAttribute("Team") == "Allies" then
-        return true
-    end
-
-    -- Cara 3: target ada di folder workspace.Allies
+    -- Cek Folder Allies
     local alliesFolder = workspace:FindFirstChild("Allies")
     if alliesFolder and alliesFolder:FindFirstChild(target.Name) then
+        return true
+    end
+
+    -- Cek Nama & Attribute
+    local name = target.Name:lower()
+    if name:find("ally") or name:find("friend") or target:GetAttribute("Team") == "Allies" then
         return true
     end
 
     return false
 end
 
--- 2. Ambil target terdekat (Fixed Death Logic)
+-- 2. Ambil Target Terdekat (Simplified & More Aggressive)
 local function getClosestTargets(maxTargets)
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -55,20 +51,19 @@ local function getClosestTargets(maxTargets)
     
     if charFolder then
         for _, target in pairs(charFolder:GetChildren()) do
-            -- Safety checks: Must be alive, must have a root part, and must still be in workspace
-            local hum = target:FindFirstChildOfClass("Humanoid")
-            local tRoot = target:FindFirstChild("HumanoidRootPart")
+            -- Pastikan target punya bagian tubuh untuk dipukul
+            local targetRoot = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Head")
             
-            if target ~= char and tRoot and hum and hum.Health > 0.1 then
+            if target ~= char and targetRoot then
                 local targetPlayer = Players:GetPlayerFromCharacter(target)
                 
-                -- Verify it is NOT a player AND NOT an ally
+                -- FILTER: Bukan Player Dan Bukan Ally
                 if not targetPlayer and not isAlly(target) then
-                    local distance = (root.Position - tRoot.Position).Magnitude
-                    if distance <= ATTACK_RANGE then
+                    local dist = (root.Position - targetRoot.Position).Magnitude
+                    if dist <= ATTACK_RANGE then
                         table.insert(candidates, {
                             model = target,
-                            dist = distance
+                            dist = dist
                         })
                     end
                 end
@@ -85,15 +80,15 @@ local function getClosestTargets(maxTargets)
     return out
 end
 
--- 3. GUI UI (Standard Draggable)
+-- 3. GUI UI
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("MageNPC_V3_GUI") then parent.MageNPC_V3_GUI:Destroy() end
+    if parent:FindFirstChild("MageNPC_FIXED_GUI") then parent.MageNPC_FIXED_GUI:Destroy() end
 
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_V3_GUI"; sg.ResetOnSpawn = false
+    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_FIXED_GUI"; sg.ResetOnSpawn = false
     local main = Instance.new("Frame", sg)
     main.Size = UDim2.new(0, 200, 0, 160); main.Position = UDim2.new(0.5, -100, 0.2, 0)
-    main.BackgroundColor3 = Color3.fromRGB(20, 20, 20); main.Active = true; main.Draggable = true 
+    main.BackgroundColor3 = Color3.fromRGB(25, 25, 25); main.Active = true; main.Draggable = true 
 
     local atkBtn = Instance.new("TextButton", main)
     atkBtn.Size = UDim2.new(1, -20, 0, 40); atkBtn.Position = UDim2.new(0, 10, 0, 10)
@@ -109,7 +104,7 @@ local function CreateUI()
 
     local adjBtn = Instance.new("TextButton", main)
     adjBtn.Size = UDim2.new(1, -20, 0, 30); adjBtn.Position = UDim2.new(0, 10, 0, 125)
-    adjBtn.Text = "SET SPEED (1-5x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); adjBtn.TextColor3 = Color3.new(1, 1, 1)
+    adjBtn.Text = "SET SPEED (1-5x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); adjBtn.TextColor3 = Color3.new(1, 1, 1)
 
     atkBtn.MouseButton1Click:Connect(function()
         _G.AutoAttackEnabled = not _G.AutoAttackEnabled
@@ -134,13 +129,10 @@ end
 task.spawn(function()
     while true do
         if _G.AutoAttackEnabled then
-            local targets = getClosestTargets(1) -- Set to 1 for more stability, 5 for clearing crowds
+            local targets = getClosestTargets(3) -- Hajar 3 monster sekaligus
             for _, data in pairs(targets) do
-                -- Double Check Health right before firing
-                if data.model:FindFirstChildOfClass("Humanoid") and data.model.Humanoid.Health > 0 then
-                    for _, remote in pairs(AttackRemotes) do
-                        remote:FireServer(5, 1, data.model)
-                    end
+                for _, remote in pairs(AttackRemotes) do
+                    remote:FireServer(5, 1, data.model)
                 end
             end
         end
@@ -148,7 +140,7 @@ task.spawn(function()
     end
 end)
 
--- 5. Speed Modifier
+-- 5. Speed
 RunService.Stepped:Connect(function()
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         LocalPlayer.Character.Humanoid.WalkSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
