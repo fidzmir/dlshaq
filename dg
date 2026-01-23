@@ -3,7 +3,23 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local AttackEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("AttackV2")
+
+-- 1. Setup Attack Remotes (V1 to V5)
+local EventsFolder = ReplicatedStorage:WaitForChild("Events")
+local AttackRemotes = {}
+for i = 1, 5 do
+    local name = "AttackV" .. i
+    local event = EventsFolder:FindFirstChild(name)
+    if event then
+        table.insert(AttackRemotes, event)
+    end
+end
+
+-- Fallback: If no V1-V5 found, try to find your original V2
+if #AttackRemotes == 0 then
+    local v2 = EventsFolder:FindFirstChild("AttackV2")
+    if v2 then table.insert(AttackRemotes, v2) end
+end
 
 -- Konfigurasi Awal
 _G.AutoAttackEnabled = false
@@ -11,40 +27,40 @@ _G.SpeedEnabled = false
 _G.SpeedMultiplier = 1
 local BASE_SPEED = 16
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.01 -- Disarankan 0.01 agar tidak lag/kick
+local ATTACK_SPEED = 0.05 
 
--- 1. Fungsi Filter Musuh (FIXED)
+-- 2. Fungsi Filter Musuh (Player Protected)
 local function isValidEnemy(target)
     if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
-        local targetName = target.Name:lower()
-        local isNPCAttr = target:GetAttribute("IsNPC")
-        local mobLevel = target:GetAttribute("MobLevel")
         
-        -- Filter 1: Cek nama
-        if targetName:find("npc") or targetName:find("%(npc%)") then
+        -- STRICT PLAYER CHECK: Do not attack real people
+        if Players:GetPlayerFromCharacter(target) then
             return false
         end
 
-        -- Filter 2: Logika perbaikan (Harus return true!)
-        if isNPCAttr ~= true and mobLevel ~= nil then
+        -- Check if it's an NPC via common attributes
+        local isNPCAttr = target:GetAttribute("IsNPC")
+        local mobLevel = target:GetAttribute("MobLevel")
+        
+        if isNPCAttr == true or mobLevel ~= nil then
             return true
         end
         
-        -- Jika game tidak pakai atribut, kita anggap semua di folder Characters adalah musuh
+        -- Fallback: If it's in characters folder and NOT a player
         return true 
     end
     return false
 end
 
--- 2. GUI Draggable
+-- 3. GUI Draggable
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("MageNPC_Filter_GUI") then parent.MageNPC_Filter_GUI:Destroy() end
+    if parent:FindFirstChild("MageNPC_MultiRemote_GUI") then parent.MageNPC_MultiRemote_GUI:Destroy() end
 
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_Filter_GUI"; sg.ResetOnSpawn = false
+    local sg = Instance.new("ScreenGui", parent); sg.Name = "MageNPC_MultiRemote_GUI"; sg.ResetOnSpawn = false
     local main = Instance.new("Frame", sg)
     main.Size = UDim2.new(0, 200, 0, 160); main.Position = UDim2.new(0.5, -100, 0.2, 0)
-    main.BackgroundColor3 = Color3.fromRGB(35, 35, 35); main.Active = true; main.Draggable = true 
+    main.BackgroundColor3 = Color3.fromRGB(30, 30, 30); main.Active = true; main.Draggable = true 
 
     local atkBtn = Instance.new("TextButton", main)
     atkBtn.Size = UDim2.new(1, -20, 0, 40); atkBtn.Position = UDim2.new(0, 10, 0, 10)
@@ -81,7 +97,7 @@ local function CreateUI()
     end)
 end
 
--- 3. Loop Serangan Utama
+-- 4. Multi-Remote Attack Loop
 task.spawn(function()
     while true do
         if _G.AutoAttackEnabled then
@@ -96,8 +112,10 @@ task.spawn(function()
                         if enemyRoot then
                             local distance = (root.Position - enemyRoot.Position).Magnitude
                             if distance <= ATTACK_RANGE then
-                                -- Pastikan remote event dipanggil dengan benar
-                                AttackEvent:FireServer(5, 1, enemy)
+                                -- FIRE ALL FOUND REMOTES (V1, V2, V3, etc.)
+                                for _, remote in pairs(AttackRemotes) do
+                                    remote:FireServer(5, 1, enemy)
+                                end
                             end
                         end
                     end
@@ -108,7 +126,7 @@ task.spawn(function()
     end
 end)
 
--- 4. Loop Speed Modifier
+-- 5. Speed Modifier
 RunService.Stepped:Connect(function()
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         LocalPlayer.Character.Humanoid.WalkSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
