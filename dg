@@ -17,7 +17,7 @@ _G.SpeedMultiplier = 1
 local BASE_SPEED = 16
 local MAX_SPEED_CAP = 45    
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.12   
+local ATTACK_SPEED = 0.05   
 
 -- 1. Remote Hunter: Finds the highest version (AttackV1, V2, V3...)
 local function GetCurrentAttackRemote()
