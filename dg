@@ -12,18 +12,18 @@ local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 _G.AutoAttackEnabled = false
 _G.SpeedEnabled = false
 _G.ESPEnabled = true
-_G.ChestESPEnabled = true
 _G.SpeedMultiplier = 1
 
 local BASE_SPEED = 16
 local MAX_SPEED_CAP = 45    
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.01   
+local ATTACK_SPEED = 0.015
 
--- 1. Remote Hunter
+-- 1. Remote Hunter: Finds the highest version (AttackV1, V2, V3...)
 local function GetCurrentAttackRemote()
     local bestRemote = nil
     local highestVersion = -1
+
     for _, v in pairs(EventsFolder:GetChildren()) do
         if v.Name:find("Attack") then
             local version = tonumber(v.Name:match("%d+"))
@@ -36,59 +36,74 @@ local function GetCurrentAttackRemote()
     return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
 end
 
--- 2. Filters
+-- 2. Target Filter: Keeps your "Useful Fallback" but protects you from self-attacking
 local function isValidEnemy(target)
     if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
         if target == LocalPlayer.Character then return false end 
+        
         local targetName = target.Name:lower()
-        if targetName:find("npc") and not target:GetAttribute("MobLevel") then return false end
-        return true -- Your useful fallback
+        local isNPCAttr = target:GetAttribute("IsNPC")
+        local mobLevel = target:GetAttribute("MobLevel")
+        
+        -- Filter out shopkeepers/friendly NPCs
+        if targetName:find("npc") and not mobLevel then
+            return false
+        end
+
+        -- Try to be smart with attributes, otherwise use the "Return True" Fallback
+        if isNPCAttr == true or mobLevel ~= nil then
+            return true
+        end
+        
+        return true -- Useful Fallback
     end
     return false
 end
 
-local function isChest(obj)
-    local name = obj.Name:lower()
-    return name:find("chest") or name:find("treasure") or name:find("crate") or name:find("reward")
-end
-
--- 3. ESP Logic (Highlights)
-local function ApplyHighlight(target, color, name)
-    if not target:FindFirstChild(name) then
+-- 3. ESP Highlight Logic
+local function ApplyESP(target)
+    if not target:FindFirstChild("MobHighlight") then
         local highlight = Instance.new("Highlight")
-        highlight.Name = name
+        highlight.Name = "MobHighlight"
         highlight.Adornee = target
-        highlight.FillColor = color
-        highlight.FillTransparency = 0.4
-        highlight.OutlineColor = Color3.new(1, 1, 1)
+        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         highlight.Parent = target
         
-        -- Cleanup for mobs
         local hum = target:FindFirstChild("Humanoid")
-        if hum then hum.Died:Connect(function() highlight:Destroy() end) end
+        if hum then
+            hum.Died:Connect(function() highlight:Destroy() end)
+        end
     end
 end
 
--- 4. Main Loop
+-- 4. Main Loop: Attack, ESP, and Remote Refresh
 task.spawn(function()
     while true do
         local currentRemote = GetCurrentAttackRemote()
-        
-        -- Scan Workspace for Mobs and Chests
-        for _, obj in pairs(workspace:GetDescendants()) do
-            -- Mob ESP & Attack
-            if obj.Parent and obj.Parent.Name == "Characters" and isValidEnemy(obj) then
-                if _G.ESPEnabled then ApplyHighlight(obj, Color3.fromRGB(255, 0, 0), "MobHighlight") end
-                if _G.AutoAttackEnabled and currentRemote then
-                    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    local eRoot = obj:FindFirstChild("HumanoidRootPart")
-                    if root and eRoot and (root.Position - eRoot.Position).Magnitude <= ATTACK_RANGE then
-                        currentRemote:FireServer(5, 1, obj)
+        local charFolder = workspace:FindFirstChild("Characters")
+
+        if charFolder then
+            for _, enemy in pairs(charFolder:GetChildren()) do
+                if isValidEnemy(enemy) then
+                    -- ESP Update
+                    if _G.ESPEnabled then ApplyESP(enemy) end
+                    
+                    -- Attack Update
+                    if _G.AutoAttackEnabled and currentRemote then
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+                        
+                        if root and enemyRoot then
+                            local dist = (root.Position - enemyRoot.Position).Magnitude
+                            if dist <= ATTACK_RANGE then
+                                currentRemote:FireServer(5, 1, enemy)
+                            end
+                        end
                     end
                 end
-            -- Chest ESP
-            elseif isChest(obj) and _G.ChestESPEnabled then
-                ApplyHighlight(obj, Color3.fromRGB(255, 215, 0), "ChestHighlight")
             end
         end
         task.wait(ATTACK_SPEED)
@@ -98,29 +113,44 @@ end)
 -- 5. GUI Setup
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("DungeonMaster_V2") then parent.DungeonMaster_V2:Destroy() end
+    if parent:FindFirstChild("DungeonMaster_GUI") then parent.DungeonMaster_GUI:Destroy() end
 
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "DungeonMaster_V2"; sg.ResetOnSpawn = false
+    local sg = Instance.new("ScreenGui", parent)
+    sg.Name = "DungeonMaster_GUI"
+    sg.ResetOnSpawn = false
+
     local main = Instance.new("Frame", sg)
-    main.Size = UDim2.new(0, 200, 0, 240); main.Position = UDim2.new(0.5, -100, 0.2, 0)
-    main.BackgroundColor3 = Color3.fromRGB(20, 20, 20); main.Active = true; main.Draggable = true 
+    main.Size = UDim2.new(0, 200, 0, 220)
+    main.Position = UDim2.new(0.5, -100, 0.2, 0)
+    main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    main.Active = true
+    main.Draggable = true 
 
-    local function MakeBtn(text, pos, color)
-        local b = Instance.new("TextButton", main)
-        b.Size = UDim2.new(1, -20, 0, 30); b.Position = pos
-        b.Text = text; b.BackgroundColor3 = color; b.TextColor3 = Color3.new(1, 1, 1)
-        return b
-    end
+    local title = Instance.new("TextLabel", main)
+    title.Size = UDim2.new(1, 0, 0, 25)
+    title.Text = "DUNGEON MASTER"
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 
-    local atkBtn = MakeBtn("AUTO ATTACK: OFF", UDim2.new(0, 10, 0, 10), Color3.fromRGB(150, 0, 0))
-    local speedBtn = MakeBtn("SPEED: OFF", UDim2.new(0, 10, 0, 45), Color3.fromRGB(150, 0, 0))
-    local espBtn = MakeBtn("MOB ESP: ON", UDim2.new(0, 10, 0, 80), Color3.fromRGB(0, 150, 0))
-    local chestBtn = MakeBtn("CHEST ESP: ON", UDim2.new(0, 10, 0, 115), Color3.fromRGB(0, 150, 0))
-    
-    local adjBtn = MakeBtn("SPEED: 1x", UDim2.new(0, 10, 0, 150), Color3.fromRGB(60, 60, 60))
+    local atkBtn = Instance.new("TextButton", main)
+    atkBtn.Size = UDim2.new(1, -20, 0, 35); atkBtn.Position = UDim2.new(0, 10, 0, 35)
+    atkBtn.Text = "AUTO ATTACK: OFF"; atkBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0); atkBtn.TextColor3 = Color3.new(1, 1, 1)
+
+    local speedBtn = Instance.new("TextButton", main)
+    speedBtn.Size = UDim2.new(1, -20, 0, 35); speedBtn.Position = UDim2.new(0, 10, 0, 75)
+    speedBtn.Text = "SPEED: OFF"; speedBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0); speedBtn.TextColor3 = Color3.new(1, 1, 1)
+
+    local espBtn = Instance.new("TextButton", main)
+    espBtn.Size = UDim2.new(1, -20, 0, 35); espBtn.Position = UDim2.new(0, 10, 0, 115)
+    espBtn.Text = "ESP: ON"; espBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); espBtn.TextColor3 = Color3.new(1, 1, 1)
+
     local remoteLabel = Instance.new("TextLabel", main)
-    remoteLabel.Size = UDim2.new(1, 0, 0, 40); remoteLabel.Position = UDim2.new(0, 0, 0, 185)
-    remoteLabel.Text = "Searching Remote..."; remoteLabel.TextColor3 = Color3.new(0.7, 0.7, 0.7); remoteLabel.BackgroundTransparency = 1; remoteLabel.TextSize = 12
+    remoteLabel.Size = UDim2.new(1, 0, 0, 20); remoteLabel.Position = UDim2.new(0, 0, 0, 155)
+    remoteLabel.Text = "Remote: Searching..."; remoteLabel.TextColor3 = Color3.fromRGB(200, 200, 200); remoteLabel.BackgroundTransparency = 1; remoteLabel.TextSize = 10
+
+    local adjBtn = Instance.new("TextButton", main)
+    adjBtn.Size = UDim2.new(1, -20, 0, 30); adjBtn.Position = UDim2.new(0, 10, 0, 180)
+    adjBtn.Text = "SET SPEED (1-5x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); adjBtn.TextColor3 = Color3.new(1, 1, 1)
 
     -- Logic
     atkBtn.MouseButton1Click:Connect(function()
@@ -137,16 +167,11 @@ local function CreateUI()
 
     espBtn.MouseButton1Click:Connect(function()
         _G.ESPEnabled = not _G.ESPEnabled
-        espBtn.Text = _G.ESPEnabled and "MOB ESP: ON" or "MOB ESP: OFF"
+        espBtn.Text = _G.ESPEnabled and "ESP: ON" or "ESP: OFF"
         espBtn.BackgroundColor3 = _G.ESPEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
-        if not _G.ESPEnabled then for _, v in pairs(workspace:GetDescendants()) do if v.Name == "MobHighlight" then v:Destroy() end end end
-    end)
-
-    chestBtn.MouseButton1Click:Connect(function()
-        _G.ChestESPEnabled = not _G.ChestESPEnabled
-        chestBtn.Text = _G.ChestESPEnabled and "CHEST ESP: ON" or "CHEST ESP: OFF"
-        chestBtn.BackgroundColor3 = _G.ChestESPEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
-        if not _G.ChestESPEnabled then for _, v in pairs(workspace:GetDescendants()) do if v.Name == "ChestHighlight" then v:Destroy() end end end
+        if not _G.ESPEnabled then
+            for _, v in pairs(workspace:GetDescendants()) do if v.Name == "MobHighlight" then v:Destroy() end end
+        end
     end)
 
     adjBtn.MouseButton1Click:Connect(function()
@@ -154,10 +179,11 @@ local function CreateUI()
         adjBtn.Text = "SPEED: " .. _G.SpeedMultiplier .. "x"
     end)
 
+    -- Update Remote Label
     task.spawn(function()
         while task.wait(1) do
             local r = GetCurrentAttackRemote()
-            remoteLabel.Text = "Active Remote:\n" .. (r and r.Name or "None")
+            remoteLabel.Text = "Active Remote: " .. (r and r.Name or "None")
         end
     end)
 end
