@@ -6,88 +6,80 @@ local CoreGui = game:GetService("CoreGui")
 
 -- Variables
 local LocalPlayer = Players.LocalPlayer
-local AttackEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("AttackV2")
+local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 
 -- Konfigurasi
 _G.AutoAttackEnabled = false
 _G.SpeedEnabled = false
+_G.ESPEnabled = true
+_G.ChestESPEnabled = true
+_G.MobFreeze = false -- THE NEW FEATURE
 _G.SpeedMultiplier = 1
-_G.ESPEnabled = true -- Set to true by default
 
 local BASE_SPEED = 16
 local MAX_SPEED_CAP = 45    
 local ATTACK_RANGE = 200
 local ATTACK_SPEED = 0.12   
 
--- 1. Fungsi Filter Musuh (With your Useful Fallback)
+-- 1. Remote Hunter
+local function GetCurrentAttackRemote()
+    local bestRemote = nil
+    local highestVersion = -1
+    for _, v in pairs(EventsFolder:GetChildren()) do
+        if v.Name:find("Attack") then
+            local version = tonumber(v.Name:match("%d+"))
+            if version and version > highestVersion then
+                highestVersion = version
+                bestRemote = v
+            end
+        end
+    end
+    return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
+end
+
+-- 2. Filters
 local function isValidEnemy(target)
     if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
         if target == LocalPlayer.Character then return false end 
-        
-        local targetName = target.Name:lower()
-        local isNPCAttr = target:GetAttribute("IsNPC")
-        local mobLevel = target:GetAttribute("MobLevel")
-        
-        -- Filter: Ignore specific non-combat names
-        if targetName:find("npc") and not mobLevel then
-            return false
-        end
-
-        -- Use attributes if they exist
-        if isNPCAttr == true or mobLevel ~= nil then
-            return true
-        end
-        
-        -- YOUR FALLBACK: Return true for anything else with a Humanoid
-        return true 
+        return true -- Fallback set to true as requested
     end
     return false
 end
 
--- 2. ESP Logic (Highlighting Mobs)
-local function CreateESP(target)
-    if target:FindFirstChild("MobESP") then return end
-    
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "MobESP"
-    highlight.Adornee = target
-    highlight.FillColor = Color3.fromRGB(255, 0, 0) -- Red for enemies
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.5
-    highlight.Parent = target
-
-    -- Remove ESP when mob dies
-    local hum = target:FindFirstChild("Humanoid")
-    if hum then
-        hum.Died:Connect(function()
-            highlight:Destroy()
-        end)
+-- 3. ESP & Freeze Logic
+local function ApplyHighlight(target, color, name)
+    if not target:FindFirstChild(name) then
+        local highlight = Instance.new("Highlight", target)
+        highlight.Name = name
+        highlight.FillColor = color
+        highlight.FillTransparency = 0.4
     end
 end
 
--- 3. Loop Serangan & ESP Update
+-- 4. Main Loop
 task.spawn(function()
     while true do
+        local currentRemote = GetCurrentAttackRemote()
         local charFolder = workspace:FindFirstChild("Characters")
+        
         if charFolder then
-            for _, enemy in pairs(charFolder:GetChildren()) do
-                if isValidEnemy(enemy) then
-                    -- Update ESP
-                    if _G.ESPEnabled then
-                        CreateESP(enemy)
+            for _, obj in pairs(charFolder:GetChildren()) do
+                if isValidEnemy(obj) then
+                    -- MOB FREEZE LOGIC
+                    local root = obj:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        -- If Freeze is ON, we anchor the enemy so they can't move
+                        root.Anchored = _G.MobFreeze
                     end
+
+                    -- MOB ESP
+                    if _G.ESPEnabled then ApplyHighlight(obj, Color3.fromRGB(255, 0, 0), "MobHighlight") end
                     
-                    -- Update Attack
-                    if _G.AutoAttackEnabled then
-                        local char = LocalPlayer.Character
-                        local root = char and char:FindFirstChild("HumanoidRootPart")
-                        local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
-                        
-                        if root and enemyRoot then
-                            local distance = (root.Position - enemyRoot.Position).Magnitude
-                            if distance <= ATTACK_RANGE then
-                                AttackEvent:FireServer(5, 1, enemy)
-                            end
+                    -- AUTO ATTACK
+                    if _G.AutoAttackEnabled and currentRemote then
+                        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if myRoot and root and (myRoot.Position - root.Position).Magnitude <= ATTACK_RANGE then
+                            currentRemote:FireServer(5, 1, obj)
                         end
                     end
                 end
@@ -97,41 +89,29 @@ task.spawn(function()
     end
 end)
 
--- 4. GUI Draggable
+-- 5. GUI Setup
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("MageNPC_Filter_GUI") then parent.MageNPC_Filter_GUI:Destroy() end
+    if parent:FindFirstChild("DungeonMaster_ULTRA") then parent.DungeonMaster_ULTRA:Destroy() end
 
-    local sg = Instance.new("ScreenGui", parent)
-    sg.Name = "MageNPC_Filter_GUI"
-    sg.ResetOnSpawn = false
-
+    local sg = Instance.new("ScreenGui", parent); sg.Name = "DungeonMaster_ULTRA"; sg.ResetOnSpawn = false
     local main = Instance.new("Frame", sg)
-    main.Size = UDim2.new(0, 200, 0, 200)
-    main.Position = UDim2.new(0.5, -100, 0.2, 0)
-    main.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    main.Active = true
-    main.Draggable = true 
+    main.Size = UDim2.new(0, 200, 0, 280); main.Position = UDim2.new(0.5, -100, 0.2, 0)
+    main.BackgroundColor3 = Color3.fromRGB(15, 15, 15); main.Active = true; main.Draggable = true 
 
-    local atkBtn = Instance.new("TextButton", main)
-    atkBtn.Size = UDim2.new(1, -20, 0, 35); atkBtn.Position = UDim2.new(0, 10, 0, 10)
-    atkBtn.Text = "AUTO ATTACK: OFF"; atkBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0); atkBtn.TextColor3 = Color3.new(1, 1, 1)
+    local function MakeBtn(text, pos, color)
+        local b = Instance.new("TextButton", main)
+        b.Size = UDim2.new(1, -20, 0, 30); b.Position = pos
+        b.Text = text; b.BackgroundColor3 = color; b.TextColor3 = Color3.new(1, 1, 1); b.BorderSizePixel = 0
+        return b
+    end
 
-    local speedBtn = Instance.new("TextButton", main)
-    speedBtn.Size = UDim2.new(1, -20, 0, 35); speedBtn.Position = UDim2.new(0, 10, 0, 50)
-    speedBtn.Text = "SPEED: OFF"; speedBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0); speedBtn.TextColor3 = Color3.new(1, 1, 1)
-
-    local espBtn = Instance.new("TextButton", main)
-    espBtn.Size = UDim2.new(1, -20, 0, 35); espBtn.Position = UDim2.new(0, 10, 0, 90)
-    espBtn.Text = "ESP: ON"; espBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); espBtn.TextColor3 = Color3.new(1, 1, 1)
-
-    local label = Instance.new("TextLabel", main)
-    label.Size = UDim2.new(1, 0, 0, 20); label.Position = UDim2.new(0, 0, 0, 130)
-    label.Text = "SPEED: 1x"; label.TextColor3 = Color3.new(1, 1, 1); label.BackgroundTransparency = 1
-
-    local adjBtn = Instance.new("TextButton", main)
-    adjBtn.Size = UDim2.new(1, -20, 0, 30); adjBtn.Position = UDim2.new(0, 10, 0, 155)
-    adjBtn.Text = "SET SPEED (1-5x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); adjBtn.TextColor3 = Color3.new(1, 1, 1)
+    local atkBtn = MakeBtn("AUTO ATTACK: OFF", UDim2.new(0, 10, 0, 10), Color3.fromRGB(150, 0, 0))
+    local freezeBtn = MakeBtn("FREEZE MOBS: OFF", UDim2.new(0, 10, 0, 45), Color3.fromRGB(70, 0, 150)) -- Purple for Freeze
+    local speedBtn = MakeBtn("SPEED: OFF", UDim2.new(0, 10, 0, 80), Color3.fromRGB(150, 0, 0))
+    local espBtn = MakeBtn("MOB ESP: ON", UDim2.new(0, 10, 0, 115), Color3.fromRGB(0, 150, 0))
+    local chestBtn = MakeBtn("CHEST ESP: ON", UDim2.new(0, 10, 0, 150), Color3.fromRGB(0, 150, 0))
+    local adjBtn = MakeBtn("SPEED: 1x", UDim2.new(0, 10, 0, 185), Color3.fromRGB(60, 60, 60))
 
     -- Logic
     atkBtn.MouseButton1Click:Connect(function()
@@ -140,32 +120,39 @@ local function CreateUI()
         atkBtn.BackgroundColor3 = _G.AutoAttackEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
     end)
 
+    freezeBtn.MouseButton1Click:Connect(function()
+        _G.MobFreeze = not _G.MobFreeze
+        freezeBtn.Text = _G.MobFreeze and "FREEZE MOBS: ON" or "FREEZE MOBS: OFF"
+        freezeBtn.BackgroundColor3 = _G.MobFreeze and Color3.fromRGB(110, 0, 255) or Color3.fromRGB(70, 0, 150)
+        
+        -- If turning OFF, unanchor everyone immediately
+        if not _G.MobFreeze then
+            local charFolder = workspace:FindFirstChild("Characters")
+            if charFolder then
+                for _, m in pairs(charFolder:GetChildren()) do
+                    if m:FindFirstChild("HumanoidRootPart") then m.HumanoidRootPart.Anchored = false end
+                end
+            end
+        end
+    end)
+
     speedBtn.MouseButton1Click:Connect(function()
         _G.SpeedEnabled = not _G.SpeedEnabled
         speedBtn.Text = _G.SpeedEnabled and "SPEED: ON" or "SPEED: OFF"
         speedBtn.BackgroundColor3 = _G.SpeedEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
     end)
 
-    espBtn.MouseButton1Click:Connect(function()
-        _G.ESPEnabled = not _G.ESPEnabled
-        espBtn.Text = _G.ESPEnabled and "ESP: ON" or "ESP: OFF"
-        espBtn.BackgroundColor3 = _G.ESPEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
-        
-        if not _G.ESPEnabled then
-            for _, v in pairs(workspace:GetDescendants()) do
-                if v.Name == "MobESP" then v:Destroy() end
-            end
-        end
-    end)
-
     adjBtn.MouseButton1Click:Connect(function()
-        _G.SpeedMultiplier = _G.SpeedMultiplier + 1
-        if _G.SpeedMultiplier > 5 then _G.SpeedMultiplier = 1 end
-        label.Text = "SPEED: " .. _G.SpeedMultiplier .. "x"
+        _G.SpeedMultiplier = (_G.SpeedMultiplier % 5) + 1
+        adjBtn.Text = "SPEED: " .. _G.SpeedMultiplier .. "x"
     end)
+    
+    -- Chest ESP Toggle (Simplified for brevity)
+    chestBtn.MouseButton1Click:Connect(function() _G.ChestESPEnabled = not _G.ChestESPEnabled end)
+    espBtn.MouseButton1Click:Connect(function() _G.ESPEnabled = not _G.ESPEnabled end)
 end
 
--- 5. Speed Modifier
+-- 6. Speed Modifier
 RunService.Heartbeat:Connect(function()
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         local targetSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
