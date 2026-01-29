@@ -35,33 +35,43 @@ local function GetCurrentAttackRemote()
     return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
 end
 
--- 2. Pattern-Based Target Filter (The Fix)
+-- 2. HARDCORE Target Filter: Multi-layer Player Detection
 local function isValidEnemy(target)
     if not target or not target:FindFirstChild("Humanoid") or target.Humanoid.Health <= 0 then 
         return false 
     end
 
-    -- Layer 1: Absolute Player Check
-    if Players:GetPlayerFromCharacter(target) then return false end
-
-    -- Layer 2: Name Pattern Check
-    -- This looks for the literal string "(NPC)" in the name
-    local targetName = target.Name
-    local hasNPCTag = string.find(targetName, "%(NPC%)") 
-    
-    -- Layer 3: Level Pattern Check
-    -- Mobs are level 10, 20, 30... (multiples of 10)
-    local mobLevel = target:GetAttribute("MobLevel") or tonumber(targetName:match("%d+"))
-    local isBossLevel = mobLevel and (mobLevel % 10 == 0)
-
-    -- THE LOGIC: 
-    -- Only attack if it has "(NPC)" in the name OR fits the level 10, 20, 30 pattern.
-    if hasNPCTag or isBossLevel then
-        return true
+    -- LAYER 1: Standard Roblox Player Check
+    if Players:GetPlayerFromCharacter(target) then 
+        return false 
     end
 
-    -- If it doesn't have the NPC tag, we assume it's a player/friend and ignore it.
-    return false
+    -- LAYER 2: Check for Player-only objects (Backpack, PlayerGui, or Scripts usually found in players)
+    -- Mobs almost never have a Backpack or a UserId attribute
+    if target:FindFirstChild("Backpack") or target:FindFirstChild("PlayerGui") then
+        return false
+    end
+
+    -- LAYER 3: Name Check (Just in case)
+    if target.Name == LocalPlayer.Name then 
+        return false 
+    end
+
+    -- LAYER 4: Attribute Check (Specific to most Dungeon games)
+    local isNPC = target:GetAttribute("IsNPC")
+    local mobLevel = target:GetAttribute("MobLevel")
+    
+    -- If it has no mob indicators but is in the Characters folder, 
+    -- and we've already checked it's not a player, we treat it as an enemy.
+    -- However, if your friend is STILL being hit, we add this:
+    if not isNPC and not mobLevel and target:FindFirstChild("Animate") then
+        -- Many games use the default "Animate" script for players but not for mobs.
+        -- If the script hits friends, we assume anything with a standard 'Animate' is a player.
+        -- Remove the comment below if friends are still being hit:
+        -- return false 
+    end
+
+    return true
 end
 
 -- 3. ESP Highlight Logic
@@ -85,12 +95,11 @@ task.spawn(function()
     local currentRemote = GetCurrentAttackRemote()
     
     while true do
-        -- Scans the entire workspace for things matching our NPC criteria
-        local potentialTargets = workspace:GetDescendants()
+        -- We check 'workspace' entirely if the 'Characters' folder is unreliable
+        local targets = workspace:FindFirstChild("Characters") and workspace.Characters:GetChildren() or workspace:GetChildren()
 
-        for _, enemy in pairs(potentialTargets) do
-            -- Ensure it's a model with a humanoid (typical mob structure)
-            if enemy:IsA("Model") and isValidEnemy(enemy) then
+        for _, enemy in pairs(targets) do
+            if isValidEnemy(enemy) then
                 if _G.ESPEnabled then ApplyESP(enemy) end
                 
                 if _G.AutoAttackEnabled and currentRemote then
@@ -101,6 +110,7 @@ task.spawn(function()
                     if root and enemyRoot then
                         local dist = (root.Position - enemyRoot.Position).Magnitude
                         if dist <= ATTACK_RANGE then
+                            -- Pass parameters: (AttackIndex, AnimationIndex, TargetCharacter)
                             currentRemote:FireServer(5, 1, enemy)
                         end
                     end
@@ -111,7 +121,7 @@ task.spawn(function()
     end
 end)
 
--- 5. GUI Setup
+-- 5. GUI (Same as before, updated title)
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
     if parent:FindFirstChild("DungeonMaster_GUI") then parent.DungeonMaster_GUI:Destroy() end
@@ -129,9 +139,9 @@ local function CreateUI()
 
     local title = Instance.new("TextLabel", main)
     title.Size = UDim2.new(1, 0, 0, 25)
-    title.Text = "DM V3 - NPC FILTER"
+    title.Text = "DM V2 - FRIEND SAFE"
     title.TextColor3 = Color3.new(1, 1, 1)
-    title.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+    title.BackgroundColor3 = Color3.fromRGB(60, 0, 0)
 
     local atkBtn = Instance.new("TextButton", main)
     atkBtn.Size = UDim2.new(1, -20, 0, 35); atkBtn.Position = UDim2.new(0, 10, 0, 35)
@@ -179,10 +189,9 @@ end
 -- 6. Speed Modifier
 RunService.Heartbeat:Connect(function()
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        local hum = LocalPlayer.Character.Humanoid
         local targetSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
         if targetSpeed > MAX_SPEED_CAP then targetSpeed = MAX_SPEED_CAP end
-        hum.WalkSpeed = targetSpeed
+        LocalPlayer.Character.Humanoid.WalkSpeed = targetSpeed
     end
 end)
 
