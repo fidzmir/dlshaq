@@ -4,23 +4,26 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 
+-- Variables
 local LocalPlayer = Players.LocalPlayer
 local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 
--- Config
+-- Konfigurasi
 _G.AutoAttackEnabled = false
-_G.NoclipEnabled = false
+_G.SpeedEnabled = false
 _G.ESPEnabled = true
 _G.SpeedMultiplier = 1
 
 local BASE_SPEED = 16
-local ATTACK_RANGE = 200 -- This range is what allows hitting through walls
-local ATTACK_SPEED = 0.12 
+local MAX_SPEED_CAP = 45    
+local ATTACK_RANGE = 200
+local ATTACK_SPEED = 0.015 -- Fast attack rate
 
--- 1. Remote Hunter (Version Independent)
+-- 1. Remote Hunter: Finds the highest version (AttackV1, V2, V3...)
 local function GetCurrentAttackRemote()
     local bestRemote = nil
     local highestVersion = -1
+
     for _, v in pairs(EventsFolder:GetChildren()) do
         if v.Name:find("Attack") then
             local version = tonumber(v.Name:match("%d+"))
@@ -30,73 +33,58 @@ local function GetCurrentAttackRemote()
             end
         end
     end
-    return bestRemote or EventsFolder:FindFirstChild("AttackV2")
+    return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
 end
 
--- 2. Noclip Logic (The "Safety" part)
-RunService.Stepped:Connect(function()
-    if _G.NoclipEnabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
+-- 2. Improved Target Filter: Ignores ALL Players (Friends & Self)
+local function isValidEnemy(target)
+    if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
+        -- CRITICAL: This line prevents hitting your friend or yourself
+        if Players:GetPlayerFromCharacter(target) then 
+            return false 
+        end 
+        
+        local targetName = target.Name:lower()
+        local isNPCAttr = target:GetAttribute("IsNPC")
+        local mobLevel = target:GetAttribute("MobLevel")
+        
+        -- Filter out shopkeepers or specific NPCs that aren't enemies
+        if targetName:find("npc") and not mobLevel then
+            return false
+        end
+
+        -- If it's explicitly marked as an NPC or has a Level, it's a target
+        if isNPCAttr == true or mobLevel ~= nil then
+            return true
+        end
+        
+        return true -- Generic fallback for mob folders
+    end
+    return false
+end
+
+-- 3. ESP Highlight Logic
+local function ApplyESP(target)
+    if not target:FindFirstChild("MobHighlight") then
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "MobHighlight"
+        highlight.Adornee = target
+        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.Parent = target
+        
+        local hum = target:FindFirstChild("Humanoid")
+        if hum then
+            hum.Died:Connect(function() 
+                if highlight then highlight:Destroy() end 
+            end)
         end
     end
-end)
+end
 
--- 3. Main Attack Loop (Hits through walls)
+-- 4. Main Loop: Attack and ESP
 task.spawn(function()
-    while true do
-        local remote = GetCurrentAttackRemote()
-        local charFolder = workspace:FindFirstChild("Characters")
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-
-        if charFolder and myRoot and _G.AutoAttackEnabled then
-            for _, enemy in pairs(charFolder:GetChildren()) do
-                -- Logic: We don't check for walls (Raycast), we only check distance
-                local eRoot = enemy:FindFirstChild("HumanoidRootPart")
-                local hum = enemy:FindFirstChild("Humanoid")
-                
-                if eRoot and hum and hum.Health > 0 and enemy ~= LocalPlayer.Character then
-                    local dist = (myRoot.Position - eRoot.Position).Magnitude
-                    if dist <= ATTACK_RANGE then
-                        -- The Remote is fired directly to the enemy, bypassing walls
-                        remote:FireServer(5, 1, enemy)
-                    end
-                end
-            end
-        end
-        task.wait(ATTACK_SPEED)
-    end
-end)
-
--- 4. Simple Stealth UI
-local function CreateUI()
-    local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("WallFarmGUI") then parent.WallFarmGUI:Destroy() end
-
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "WallFarmGUI"
-    local main = Instance.new("Frame", sg)
-    main.Size = UDim2.new(0, 180, 0, 180); main.Position = UDim2.new(0.5, -90, 0.3, 0)
-    main.BackgroundColor3 = Color3.fromRGB(30, 30, 30); main.Draggable = true; main.Active = true
-
-    local function MakeBtn(text, pos, color, var)
-        local b = Instance.new("TextButton", main)
-        b.Size = UDim2.new(1, -20, 0, 35); b.Position = pos
-        b.Text = text; b.BackgroundColor3 = color; b.TextColor3 = Color3.new(1, 1, 1)
-        b.MouseButton1Click:Connect(function()
-            _G[var] = not _G[var]
-            b.BackgroundColor3 = _G[var] and Color3.fromRGB(0, 150, 0) or color
-        end)
-    end
-
-    MakeBtn("AUTO ATTACK", UDim2.new(0, 10, 0, 10), Color3.fromRGB(150, 0, 0), "AutoAttackEnabled")
-    MakeBtn("NOCLIP (SAFE)", UDim2.new(0, 10, 0, 50), Color3.fromRGB(150, 0, 0), "NoclipEnabled")
-    MakeBtn("MOB ESP", UDim2.new(0, 10, 0, 90), Color3.fromRGB(150, 0, 0), "ESPEnabled")
+    local currentRemote = GetCurrentAttackRemote()
     
-    local lab = Instance.new("TextLabel", main)
-    lab.Size = UDim2.new(1, 0, 0, 30); lab.Position = UDim2.new(0, 0, 0, 135)
-    lab.Text = "Status: WallFarm Ready"; lab.TextColor3 = Color3.new(1, 1, 1); lab.BackgroundTransparency = 1
-end
-
-CreateUI()
+    -- Update the
