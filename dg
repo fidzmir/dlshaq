@@ -17,7 +17,7 @@ _G.SpeedMultiplier = 1
 local BASE_SPEED = 16
 local MAX_SPEED_CAP = 45    
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.015
+local ATTACK_SPEED = 0.015 -- Fast attack rate
 
 -- 1. Remote Hunter: Finds the highest version (AttackV1, V2, V3...)
 local function GetCurrentAttackRemote()
@@ -36,26 +36,29 @@ local function GetCurrentAttackRemote()
     return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
 end
 
--- 2. Target Filter: Keeps your "Useful Fallback" but protects you from self-attacking
+-- 2. Improved Target Filter: Ignores ALL Players (Friends & Self)
 local function isValidEnemy(target)
     if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
-        if target == LocalPlayer.Character then return false end 
+        -- CRITICAL: This line prevents hitting your friend or yourself
+        if Players:GetPlayerFromCharacter(target) then 
+            return false 
+        end 
         
         local targetName = target.Name:lower()
         local isNPCAttr = target:GetAttribute("IsNPC")
         local mobLevel = target:GetAttribute("MobLevel")
         
-        -- Filter out shopkeepers/friendly NPCs
+        -- Filter out shopkeepers or specific NPCs that aren't enemies
         if targetName:find("npc") and not mobLevel then
             return false
         end
 
-        -- Try to be smart with attributes, otherwise use the "Return True" Fallback
+        -- If it's explicitly marked as an NPC or has a Level, it's a target
         if isNPCAttr == true or mobLevel ~= nil then
             return true
         end
         
-        return true -- Useful Fallback
+        return true -- Generic fallback for mob folders
     end
     return false
 end
@@ -73,24 +76,36 @@ local function ApplyESP(target)
         
         local hum = target:FindFirstChild("Humanoid")
         if hum then
-            hum.Died:Connect(function() highlight:Destroy() end)
+            hum.Died:Connect(function() 
+                if highlight then highlight:Destroy() end 
+            end)
         end
     end
 end
 
--- 4. Main Loop: Attack, ESP, and Remote Refresh
+-- 4. Main Loop: Attack and ESP
 task.spawn(function()
+    local currentRemote = GetCurrentAttackRemote()
+    
+    -- Update the remote reference every 10 seconds (saves performance)
+    task.spawn(function()
+        while task.wait(10) do
+            currentRemote = GetCurrentAttackRemote()
+        end
+    end)
+
     while true do
-        local currentRemote = GetCurrentAttackRemote()
-        local charFolder = workspace:FindFirstChild("Characters")
+        local charFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("NPCs") or workspace
 
         if charFolder then
             for _, enemy in pairs(charFolder:GetChildren()) do
                 if isValidEnemy(enemy) then
-                    -- ESP Update
-                    if _G.ESPEnabled then ApplyESP(enemy) end
+                    -- ESP Logic
+                    if _G.ESPEnabled then 
+                        ApplyESP(enemy) 
+                    end
                     
-                    -- Attack Update
+                    -- Attack Logic
                     if _G.AutoAttackEnabled and currentRemote then
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -99,6 +114,7 @@ task.spawn(function()
                         if root and enemyRoot then
                             local dist = (root.Position - enemyRoot.Position).Magnitude
                             if dist <= ATTACK_RANGE then
+                                -- Sending standard parameters: (ActionID, AttackType, Target)
                                 currentRemote:FireServer(5, 1, enemy)
                             end
                         end
@@ -128,7 +144,7 @@ local function CreateUI()
 
     local title = Instance.new("TextLabel", main)
     title.Size = UDim2.new(1, 0, 0, 25)
-    title.Text = "DUNGEON MASTER"
+    title.Text = "DUNGEON MASTER V2"
     title.TextColor3 = Color3.new(1, 1, 1)
     title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 
@@ -144,13 +160,9 @@ local function CreateUI()
     espBtn.Size = UDim2.new(1, -20, 0, 35); espBtn.Position = UDim2.new(0, 10, 0, 115)
     espBtn.Text = "ESP: ON"; espBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0); espBtn.TextColor3 = Color3.new(1, 1, 1)
 
-    local remoteLabel = Instance.new("TextLabel", main)
-    remoteLabel.Size = UDim2.new(1, 0, 0, 20); remoteLabel.Position = UDim2.new(0, 0, 0, 155)
-    remoteLabel.Text = "Remote: Searching..."; remoteLabel.TextColor3 = Color3.fromRGB(200, 200, 200); remoteLabel.BackgroundTransparency = 1; remoteLabel.TextSize = 10
-
     local adjBtn = Instance.new("TextButton", main)
-    adjBtn.Size = UDim2.new(1, -20, 0, 30); adjBtn.Position = UDim2.new(0, 10, 0, 180)
-    adjBtn.Text = "SET SPEED (1-5x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); adjBtn.TextColor3 = Color3.new(1, 1, 1)
+    adjBtn.Size = UDim2.new(1, -20, 0, 30); adjBtn.Position = UDim2.new(0, 10, 0, 155)
+    adjBtn.Text = "SET SPEED (1x)"; adjBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60); adjBtn.TextColor3 = Color3.new(1, 1, 1)
 
     -- Logic
     atkBtn.MouseButton1Click:Connect(function()
@@ -178,22 +190,15 @@ local function CreateUI()
         _G.SpeedMultiplier = (_G.SpeedMultiplier % 5) + 1
         adjBtn.Text = "SPEED: " .. _G.SpeedMultiplier .. "x"
     end)
-
-    -- Update Remote Label
-    task.spawn(function()
-        while task.wait(1) do
-            local r = GetCurrentAttackRemote()
-            remoteLabel.Text = "Active Remote: " .. (r and r.Name or "None")
-        end
-    end)
 end
 
 -- 6. Speed Modifier
 RunService.Heartbeat:Connect(function()
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        local hum = LocalPlayer.Character.Humanoid
         local targetSpeed = _G.SpeedEnabled and (BASE_SPEED * _G.SpeedMultiplier) or BASE_SPEED
         if targetSpeed > MAX_SPEED_CAP then targetSpeed = MAX_SPEED_CAP end
-        LocalPlayer.Character.Humanoid.WalkSpeed = targetSpeed
+        hum.WalkSpeed = targetSpeed
     end
 end)
 
