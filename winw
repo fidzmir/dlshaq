@@ -2,17 +2,16 @@ local WH = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqi
 local http = (request or http_request or (http and http.request))
 local hook = hookmetamethod
 
--- Mutex flag to prevent the script from logging its own webhook traffic
 local isLogging = false 
 
-local function sendToDiscord(remoteName, method, args)
+local function sendToDiscord(remoteName, args)
     if isLogging then return end
     isLogging = true
 
-    -- Convert arguments table to a readable string
+    -- Format the outgoing data for Discord
     local argData = ""
     for i, v in pairs(args) do
-        argData = argData .. "\n[" .. i .. "] (" .. typeof(v) .. "): " .. tostring(v)
+        argData = argData .. "\n[" .. tostring(i) .. "]: " .. tostring(v)
     end
     
     if argData == "" then argData = "No Arguments" end
@@ -24,37 +23,28 @@ local function sendToDiscord(remoteName, method, args)
                 Method = "POST",
                 Headers = {["Content-Type"] = "application/json"},
                 Body = game:GetService("HttpService"):JSONEncode({
-                    ["embeds"] = {{
-                        ["title"] = "📤 Outgoing Data Captured",
-                        ["color"] = 0xFF5555, -- Red for Outgoing
-                        ["fields"] = {
-                            {["name"] = "Remote Name", ["value"] = "`" .. remoteName .. "`", ["inline"] = true},
-                            {["name"] = "Method", ["value"] = "`" .. method .. "`", ["inline"] = true},
-                            {["name"] = "Arguments Sent", ["value"] = "```lua" .. argData .. "
-```"}
-                        },
-                        ["footer"] = {["text"] = "Timestamp: " .. os.date("%X")}
-                    }}
+                    ["content"] = "📤 **Outgoing Remote Captured**\n**Name:** `" .. remoteName .. "`\n**Data:** ```lua" .. argData .. "
+```"
                 })
             })
         end)
-        task.wait(0.2)
+        task.wait(0.3) -- Safety delay to prevent Discord rate limits
         isLogging = false
     end)
 end
 
--- Hooking the 'gate' where all client-to-server data passes
+-- Hooking the 'gate'
 local old
 old = hook(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
 
-    -- Filter: Only capture data being SENT to the server
+    -- Only log Client -> Server traffic
     if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
-        sendToDiscord(self.Name, method, args)
+        sendToDiscord(self.Name, args)
     end
 
     return old(self, ...)
 end)
 
-print("✅ Logging Outgoing Traffic Only.")
+print("✅ Wi-Fi Restored. Outgoing Logger Active.")
