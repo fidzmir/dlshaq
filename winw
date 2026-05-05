@@ -1,78 +1,73 @@
--- [[ CONFIGURATION ]]
+-- [[ CONFIG ]]
 local WebhookURL = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
--- [[ UNIVERSAL FUNCTION CHECK ]]
+print("---------------------------------")
+print("🔍 SYSTEM CHECK STARTING...")
+
+-- 1. Try to find the Request function
 local httpRequest = (request or http_request or (http and http.request) or (syn and syn.request))
-local hookMethod = (hookmetamethod or (detour and detour.hook_metamethod))
-
-if not httpRequest then warn("❌ Executor does not support HTTP Requests") return end
-if not hookMethod then warn("❌ Executor does not support Metatable Hooking") return end
-
--- [[ HELPER: FORMAT DATA FOR DISCORD ]]
-local function formatArgs(args)
-    local result = ""
-    for i, v in pairs(args) do
-        local valType = typeof(v)
-        local displayVal = tostring(v)
-        
-        if valType == "Instance" then
-            displayVal = v:GetFullName()
-        elseif valType == "table" then
-            displayVal = "{...} (Table)"
-        end
-        
-        result = result .. "[" .. i .. "] (" .. valType .. "): " .. displayVal .. "\n"
-    end
-    return result ~= "" and result or "No arguments"
+if httpRequest then 
+    print("✅ HTTP Request Function: Found") 
+else 
+    warn("❌ HTTP Request Function: NOT FOUND") 
 end
 
--- [[ DISCORD SENDER ]]
-local function sendToDiscord(remoteName, remoteType, args)
-    local dataString = formatArgs(args)
-    
+-- 2. Try to find the Hooking function
+local hookMethod = (hookmetamethod or (detour and detour.hook_metamethod))
+if hookMethod then 
+    print("✅ Hooking Function: Found") 
+else 
+    warn("❌ Hooking Function: NOT FOUND") 
+end
+
+-- 3. The Logger Function
+local function sendToDiscord(remoteName, args)
+    local dataString = ""
+    for i, v in pairs(args) do
+        dataString = dataString .. "[" .. tostring(i) .. "]: " .. tostring(v) .. "\n"
+    end
+
     local payload = {
         Url = WebhookURL,
         Method = "POST",
-        Headers = { ["Content-Type"] = "application/json" },
+        Headers = {["Content-Type"] = "application/json"},
         Body = game:GetService("HttpService"):JSONEncode({
-            ["username"] = "Map Data Dump Bot",
-            ["embeds"] = {{
-                ["title"] = "🛰️ Remote Intercepted",
-                ["description"] = "Captured communication between Client and Server.",
-                ["color"] = 0x5865F2, -- Discord Blurple
-                ["fields"] = {
-                    { ["name"] = "Remote Name", ["value"] = "```" .. remoteName .. "```", ["inline"] = true },
-                    { ["name"] = "Type", ["value"] = "```" .. remoteType .. "```", ["inline"] = true },
-                    { ["name"] = "Arguments Sent", ["value"] = "```lua\n" .. dataString .. "\n
-```" }
-                },
-                ["footer"] = { ["text"] = "School Project • " .. os.date("%X") }
-            }}
+            ["content"] = "🛰️ **Remote Intercepted!**\n**Remote:** `" .. tostring(remoteName) .. "`\n**Args:**\n```lua\n" .. dataString .. "
+```"
         })
     }
-
-    task.spawn(function()
-        local success, err = pcall(function()
-            return httpRequest(payload)
-        end)
-        if not success then warn("Discord Log Fail: " .. tostring(err)) end
+    
+    local success, err = pcall(function()
+        httpRequest(payload)
     end)
+    
+    if success then 
+        print("📤 Data sent to Discord!") 
+    else 
+        warn("📤 Failed to send: " .. tostring(err)) 
+    end
 end
 
--- [[ THE MAIN HOOK ]]
-local oldNamecall
-oldNamecall = hookMethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
+-- 4. Execute the Hook (If possible)
+if httpRequest and hookMethod then
+    print("🚀 Attempting to Hook Game...")
+    
+    local oldNamecall
+    oldNamecall = hookMethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
 
-    if method == "FireServer" or method == "InvokeServer" then
-        -- Send data to Discord without lagging the game
-        sendToDiscord(self.Name, method, args)
-    end
+        if method == "FireServer" or method == "InvokeServer" then
+            task.spawn(sendToDiscord, self.Name, args)
+        end
 
-    return oldNamecall(self, ...)
-end)
-
--- [[ TEST ON STARTUP ]]
-print("🚀 Logger Active. Checking connection...")
-sendToDiscord("SYSTEM_CHECK", "Status", {"If you see this, the logger is working perfectly!"})
+        return oldNamecall(self, ...)
+    end)
+    
+    print("✅ Hook Successful! Fire a remote to test.")
+    -- Test fire immediately
+    task.spawn(sendToDiscord, "DEBUG_TEST", {"If you see this, it works!"})
+else
+    warn("⛔ SCRIPT STOPPED: Your executor is missing required functions.")
+end
+print("---------------------------------")
