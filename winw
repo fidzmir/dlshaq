@@ -1,45 +1,50 @@
-local WH = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
+-- [[ CONFIG ]]
+local WH = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
+
+-- [[ GLOBALS ]]
 local http = (request or http_request or (http and http.request))
 local RS = game:GetService("ReplicatedStorage")
+local HS = game:GetService("HttpService")
 
-local function send(title, msg)
-    task.spawn(function()
+local function send(content)
+    -- Using the original discord.com link
+    local success, err = pcall(function()
         http({
             Url = WH,
             Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
-            Body = game:GetService("HttpService"):JSONEncode({
-                ["embeds"] = {{
-                    ["title"] = title,
-                    ["description"] = "```" .. tostring(msg) .. "
-```",
-                    ["color"] = 0x00FF00
-                }}
-            })
+            Body = HS:JSONEncode({["content"] = content})
         })
     end)
+    if not success then warn("Discord Error: " .. tostring(err)) end
 end
 
--- 1. Scan everything currently in ReplicatedStorage
+-- [[ SCANNING REPLICATED STORAGE ]]
 print("--- Scanning ReplicatedStorage ---")
+local count = 0
 for _, v in pairs(RS:GetDescendants()) do
     if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
-        print("Found: " .. v.Name)
-        send("Found Remote", v:GetFullName())
+        count = count + 1
+        -- Small delay to prevent Discord from blocking the 'original' link
+        task.wait(0.1) 
+        send("📁 **Found in RS:** `" .. v:GetFullName() .. "`")
     end
 end
+print("--- Scan Finished: Found " .. count .. " Remotes ---")
 
--- 2. Hook to catch them when they are actually used
+-- [[ LIVE INTERCEPTION ]]
 local old
 old = hookmetamethod(game, "__namecall", function(self, ...)
-    local m = getnamecallmethod()
-    if not checkcaller() and (m == "FireServer" or m == "InvokeServer") then
-        -- Check if this remote is inside ReplicatedStorage
+    local method = getnamecallmethod()
+    
+    if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
+        -- Only log if it's part of ReplicatedStorage
         if self:IsDescendantOf(RS) then
-            send("Captured Fire: " .. self.Name, tostring((...)))
+            local args = {...}
+            local data = tostring(args[1]) or "No Data"
+            send("📡 **Fired:** `" .. self.Name .. "` | **Data:** `" .. data .. "`")
         end
     end
+    
     return old(self, ...)
 end)
-
-print("--- Scan & Hook Complete ---")
