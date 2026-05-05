@@ -1,55 +1,56 @@
+-- 1. Ensure the webhook is a valid string
 local webhook = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
--- Support for different executor request functions
-local request_func = syn and syn.request or http and http.request or http_request or request
+-- 2. Guard against missing Metatable functions
+local getmt = getrawmetatable or getmetatable
+if not getmt then 
+    warn("Executor does not support metatable access.") 
+    return 
+end
 
-local mt = getrawmetatable(game)
+local mt = getmt(game)
 local old = mt.__namecall
-setreadonly(mt, false)
+local setro = setreadonly or make_writeable
+
+if not setro then
+    warn("Executor does not support setreadonly.")
+    return
+end
+
+setro(mt, false)
 
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
     
-    -- Intercept FireServer calls not made by the script itself
     if method == "FireServer" and not checkcaller() then
-        -- GetFullName() already includes 'Game', so we just use it directly
         local remotePath = self:GetFullName()
-        local formattedArgs = ""
         
-        for i, v in ipairs(args) do
-            formattedArgs = formattedArgs .. string.format("[%d] = %s (%s)\n", i, tostring(v), typeof(v))
-        end
-
         task.spawn(function()
-            -- Ensure we have a valid request function before trying to send
-            if request_func then
-                local payload = {
-                    Url = webhook,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = game:GetService("HttpService"):JSONEncode({
-                        ["embeds"] = {{
-                            ["title"] = "🎯 Remote Captured",
-                            -- Changed to use remotePath directly
-                            ["description"] = "```lua\n" .. remotePath .. ":FireServer()\n
+            local payload = {
+                Url = webhook,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = game:GetService("HttpService"):JSONEncode({
+                    ["embeds"] = {{
+                        ["title"] = "🎯 Remote Captured",
+                        ["description"] = "```lua\n" .. remotePath .. ":FireServer()\n
 ```",
-                            ["fields"] = {
-                                {
-                                    ["name"] = "Arguments", 
-                                    ["value"] = "```lua\n" .. (formattedArgs ~= "" and formattedArgs or "None") .. "```"
-                                }
-                            },
-                            ["color"] = 16711680 -- Red
-                        }}
-                    })
-                }
-                request_func(payload)
+                        ["color"] = 16711680
+                    }}
+                })
+            }
+            
+            -- Universal request check
+            local req = request or http_request or (syn and syn.request)
+            if req then
+                req(payload)
+            else
+                warn("No HTTP request function found.")
             end
         end)
     end
-    
     return old(self, ...)
 end)
 
-setreadonly(mt, true)
+setro(mt, true)
