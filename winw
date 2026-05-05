@@ -1,49 +1,57 @@
-local webhook = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
-local request_func = request or http_request or (http and http.request)
+-- Delta Remote Spy
+task.wait(0.5)
 
-local mt = getrawmetatable(game)
-local old = mt.__namecall
-setreadonly(mt, false)
-
-mt.__namecall = newcclosure(function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
+local success, err = pcall(function()
+    local webhook = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
     
-    -- "FireServer" ensures we only capture Client -> Server
-    -- "not checkcaller()" ensures we only capture things the GAME does, 
-    -- but if you want to capture your OWN exploit scripts, remove "not checkcaller()"
-    if method == "FireServer" then 
-        local remotePath = self:GetFullName()
-        
-        -- Format the arguments sent to the server
-        local argData = ""
-        for i, v in ipairs(args) do
-            argData = argData .. string.format("[%d] = %s (%s)\n", i, tostring(v), typeof(v))
-        end
+    -- Detect Delta's request function
+    local req = (type(request) == "function" and request) or (type(http_request) == "function" and http_request)
+    
+    if not req then 
+        warn("Delta: HTTP request function not found.")
+        return 
+    end
 
-        task.spawn(function()
-            if request_func then
-                request_func({
+    local mt = getrawmetatable(game)
+    local old = mt.__namecall
+    setreadonly(mt, false)
+
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        -- Only Client -> Server
+        if method == "FireServer" then
+            local path = self:GetFullName()
+            
+            -- Argument Logger
+            local formatted = ""
+            for i, v in ipairs(args) do
+                formatted = formatted .. string.format("[%d] = %s (%s)\n", i, tostring(v), typeof(v))
+            end
+
+            task.spawn(function()
+                req({
                     Url = webhook,
                     Method = "POST",
                     Headers = {["Content-Type"] = "application/json"},
                     Body = game:GetService("HttpService"):JSONEncode({
                         ["embeds"] = {{
-                            ["title"] = "📤 Client-to-Server Request",
-                            ["description"] = "**Remote:** `game." .. remotePath .. "`",
-                            ["fields"] = {
-                                {["name"] = "Data Sent", ["value"] = "```lua\n" .. (argData ~= "" and argData or "No Data") .. "
-```"}
-                            },
-                            ["color"] = 3066993 -- Green for outgoing
+                            ["title"] = "📤 Outgoing Request (Client -> Server)",
+                            ["description"] = "```lua\n" .. path .. ":FireServer()\n
+```",
+                            ["fields"] = {{["name"] = "Data", ["value"] = "```lua\n" .. (formatted ~= "" and formatted or "None") .. "```"}},
+                            ["color"] = 3066993
                         }}
                     })
                 })
-            end
-        end)
-    end
-    
-    return old(self, ...)
+            end)
+        end
+        return old(self, ...)
+    end)
+    setreadonly(mt, true)
 end)
 
-setreadonly(mt, true)
+if not success then
+    warn("Execution Error: " .. tostring(err))
+end
