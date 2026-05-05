@@ -1,50 +1,38 @@
-local WH = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
-local http = (request or http_request or (http and http.request))
-local hook = hookmetamethod
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local isLogging = false 
+local isToggled = false
+local remoteName = "rubies" -- Your specific remote name
 
-local function sendToDiscord(remoteName, args)
-    if isLogging then return end
-    isLogging = true
-
-    -- Format the outgoing data for Discord
-    local argData = ""
-    for i, v in pairs(args) do
-        argData = argData .. "\n[" .. tostring(i) .. "]: " .. tostring(v)
+-- Function to find and fire the remote
+local function fireRubyRemote()
+    while isToggled do
+        -- Searches for any RemoteEvent named "rubies"
+        local remote = ReplicatedStorage:FindFirstChild(remoteName, true) 
+        
+        if remote and remote:IsA("RemoteEvent") then
+            -- Some games require an argument like 'true' or a specific string.
+            -- If FireServer() alone doesn't work, try FireServer(true)
+            remote:FireServer() 
+        else
+            warn("Could not find a RemoteEvent named: " .. remoteName)
+        end
+        
+        task.wait(0.1) -- Delay to prevent crashing/kick
     end
-    
-    if argData == "" then argData = "No Arguments" end
-
-    task.spawn(function()
-        pcall(function()
-            http({
-                Url = WH,
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = game:GetService("HttpService"):JSONEncode({
-                    ["content"] = "📤 **Outgoing Remote Captured**\n**Name:** `" .. remoteName .. "`\n**Data:** ```lua" .. argData .. "
-```"
-                })
-            })
-        end)
-        task.wait(0.3) -- Safety delay to prevent Discord rate limits
-        isLogging = false
-    end)
 end
 
--- Hooking the 'gate'
-local old
-old = hook(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-
-    -- Only log Client -> Server traffic
-    if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
-        sendToDiscord(self.Name, args)
+-- Keybind Listener
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end 
+    
+    if input.KeyCode == Enum.KeyCode.F then
+        isToggled = not isToggled
+        if isToggled then
+            print("Auto-Claim Rubies: ON")
+            task.spawn(fireRubyRemote)
+        else
+            print("Auto-Claim Rubies: OFF")
+        end
     end
-
-    return old(self, ...)
 end)
-
-print("✅ Wi-Fi Restored. Outgoing Logger Active.")
