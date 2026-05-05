@@ -1,38 +1,55 @@
-local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local webhook = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
-local isToggled = false
-local remoteName = "rubies" -- Your specific remote name
+-- Support for different executor request functions
+local request_func = syn and syn.request or http and http.request or http_request or request
 
--- Function to find and fire the remote
-local function fireRubyRemote()
-    while isToggled do
-        -- Searches for any RemoteEvent named "rubies"
-        local remote = ReplicatedStorage:FindFirstChild(remoteName, true) 
-        
-        if remote and remote:IsA("RemoteEvent") then
-            -- Some games require an argument like 'true' or a specific string.
-            -- If FireServer() alone doesn't work, try FireServer(true)
-            remote:FireServer() 
-        else
-            warn("Could not find a RemoteEvent named: " .. remoteName)
-        end
-        
-        task.wait(0.1) -- Delay to prevent crashing/kick
-    end
-end
+local mt = getrawmetatable(game)
+local old = mt.__namecall
+setreadonly(mt, false)
 
--- Keybind Listener
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end 
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
     
-    if input.KeyCode == Enum.KeyCode.F then
-        isToggled = not isToggled
-        if isToggled then
-            print("Auto-Claim Rubies: ON")
-            task.spawn(fireRubyRemote)
-        else
-            print("Auto-Claim Rubies: OFF")
+    -- Intercept FireServer calls not made by the script itself
+    if method == "FireServer" and not checkcaller() then
+        -- GetFullName() already includes 'Game', so we just use it directly
+        local remotePath = self:GetFullName()
+        local formattedArgs = ""
+        
+        for i, v in ipairs(args) do
+            formattedArgs = formattedArgs .. string.format("[%d] = %s (%s)\n", i, tostring(v), typeof(v))
         end
+
+        task.spawn(function()
+            -- Ensure we have a valid request function before trying to send
+            if request_func then
+                local payload = {
+                    Url = webhook,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = game:GetService("HttpService"):JSONEncode({
+                        ["embeds"] = {{
+                            ["title"] = "🎯 Remote Captured",
+                            -- Changed to use remotePath directly
+                            ["description"] = "```lua\n" .. remotePath .. ":FireServer()\n
+```",
+                            ["fields"] = {
+                                {
+                                    ["name"] = "Arguments", 
+                                    ["value"] = "```lua\n" .. (formattedArgs ~= "" and formattedArgs or "None") .. "```"
+                                }
+                            },
+                            ["color"] = 16711680 -- Red
+                        }}
+                    })
+                }
+                request_func(payload)
+            end
+        end)
     end
+    
+    return old(self, ...)
 end)
+
+setreadonly(mt, true)
