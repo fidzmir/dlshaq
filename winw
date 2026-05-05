@@ -8,13 +8,18 @@ local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 _G.AutoAttack = false
 _G.SafeWalk = false
 
--- Helper: Get the closest Mob
+-- Helper: Get the closest Mob (Fixed with FindFirstChild)
 local function GetMob()
     local charFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("Mobs") or workspace
     local closest, dist = nil, math.huge
+    
     for _, e in pairs(charFolder:GetChildren()) do
-        if e:FindFirstChild("Humanoid") and e.Humanoid.Health > 0 and not Players:GetPlayerFromCharacter(e) then
-            local d = (LocalPlayer.Character.HumanoidRootPart.Position - e.HumanoidRootPart.Position).Magnitude
+        -- Fix: Ensure it is a model and has a Humanoid/RootPart before checking health
+        local hum = e:FindFirstChild("Humanoid")
+        local hrp = e:FindFirstChild("HumanoidRootPart")
+        
+        if hum and hrp and hum.Health > 0 and not Players:GetPlayerFromCharacter(e) then
+            local d = (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
             if d < dist then 
                 dist = d
                 closest = e 
@@ -54,8 +59,11 @@ task.spawn(function()
         task.wait(0.1)
         if _G.SafeWalk then
             local target = GetMob()
-            if target and target:FindFirstChild("HumanoidRootPart") then
-                LocalPlayer.Character.Humanoid:MoveTo(target.HumanoidRootPart.Position)
+            if target then
+                local hrp = target:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    LocalPlayer.Character.Humanoid:MoveTo(hrp.Position)
+                end
             end
         end
     end
@@ -63,10 +71,10 @@ end)
 
 -- UI SETUP
 local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-if parent:FindFirstChild("DungeonMasterV10") then parent.DungeonMasterV10:Destroy() end
+if parent:FindFirstChild("DungeonMasterV11") then parent.DungeonMasterV11:Destroy() end
 
 local sg = Instance.new("ScreenGui", parent)
-sg.Name = "DungeonMasterV10"
+sg.Name = "DungeonMasterV11"
 
 local f = Instance.new("Frame", sg)
 f.Size = UDim2.new(0, 150, 0, 110)
