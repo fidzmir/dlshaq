@@ -1,14 +1,7 @@
---[[ 
-   DUNGEON MASTER V7: STEALTH EDITION
-   - Safe Pathfinding (No Noclip/No Ban)
-   - Original Multi-Remote Hunter Logic
-   - CCTV-Safe (Set & Forget)
-]]
-
+-- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local PathfindingService = game:GetService("PathfindingService")
-local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
@@ -17,11 +10,10 @@ local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 -- Config
 _G.AutoAttack = false
 _G.SafeWalk = false
-_G.ESP = true
 local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.05 -- Adjusted for stability
+local ATTACK_SPEED = 0.015 -- Your original fast speed
 
--- 1. REMOTE HUNTER (Your Original Logic)
+-- 1. REMOTE HUNTER
 local function GetCurrentRemote()
     local bestRemote = nil
     local highestVersion = -1
@@ -37,25 +29,12 @@ local function GetCurrentRemote()
     return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
 end
 
--- 2. TARGET FILTER (Your Original Logic)
-local function isValidEnemy(target)
-    if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 then
-        if Players:GetPlayerFromCharacter(target) then return false end
-        -- Filter out friendly NPCs
-        if target:GetAttribute("IsNPC") == false or target.Name:lower():find("npc") then
-            if not target:GetAttribute("MobLevel") then return false end
-        end
-        return true
-    end
-    return false
-end
-
--- 3. GET NEAREST TARGET
+-- 2. NEAREST TARGET FINDER
 local function GetNearest()
     local charFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("Mobs") or workspace
     local closest, dist = nil, math.huge
     for _, e in pairs(charFolder:GetChildren()) do
-        if isValidEnemy(e) and e:FindFirstChild("HumanoidRootPart") then
+        if e:FindFirstChild("Humanoid") and e.Humanoid.Health > 0 and not Players:GetPlayerFromCharacter(e) then
             local d = (LocalPlayer.Character.HumanoidRootPart.Position - e.HumanoidRootPart.Position).Magnitude
             if d < dist then dist = d; closest = e end
         end
@@ -63,66 +42,68 @@ local function GetNearest()
     return closest
 end
 
--- 4. SAFE WALKER (Anti-Ban)
-local function WalkTo(pos)
-    local path = PathfindingService:CreatePath({AgentCanJump = true})
-    path:ComputeAsync(LocalPlayer.Character.HumanoidRootPart.Position, pos)
-    if path.Status == Enum.PathStatus.Success then
-        local waypoints = path:GetWaypoints()
-        for _, wp in ipairs(waypoints) do
-            if not _G.SafeWalk then break end
-            LocalPlayer.Character.Humanoid:MoveTo(wp.Position)
-            if wp.Action == Enum.PathWaypointAction.Jump then LocalPlayer.Character.Humanoid.Jump = true end
-            local reached = LocalPlayer.Character.Humanoid.MoveToFinished:Wait(0.5)
-            if not reached then break end
-        end
-    end
-end
-
--- 5. COMBINED MASTER LOOP
+-- 3. TASK 1: INDEPENDENT COMBAT LOOP (Always Running)
 task.spawn(function()
-    while task.wait(ATTACK_SPEED) do
-        if _G.AutoAttack or _G.SafeWalk then
+    while true do
+        if _G.AutoAttack then
             local target = GetNearest()
             local remote = GetCurrentRemote()
-            
-            if target and target:FindFirstChild("HumanoidRootPart") then
+            if target and remote then
                 local d = (LocalPlayer.Character.HumanoidRootPart.Position - target.HumanoidRootPart.Position).Magnitude
-                
-                -- Attack Logic (Your Original Args)
-                if _G.AutoAttack and remote and d <= ATTACK_RANGE then
+                if d <= ATTACK_RANGE then
                     remote:FireServer(5, 1, target)
-                end
-                
-                -- Safe Walking (No Noclip)
-                if _G.SafeWalk and d > 12 then
-                    WalkTo(target.HumanoidRootPart.Position)
                 end
             end
         end
+        task.wait(ATTACK_SPEED) -- This fires independent of movement
     end
 end)
 
--- 6. STEALTH GUI
+-- 4. TASK 2: INDEPENDENT MOVEMENT LOOP (Always Running)
+task.spawn(function()
+    while true do
+        if _G.SafeWalk then
+            local target = GetNearest()
+            if target and target:FindFirstChild("HumanoidRootPart") then
+                local d = (LocalPlayer.Character.HumanoidRootPart.Position - target.HumanoidRootPart.Position).Magnitude
+                if d > 10 then
+                    -- Pathfinding logic
+                    local path = PathfindingService:CreatePath({AgentCanJump = true})
+                    path:ComputeAsync(LocalPlayer.Character.HumanoidRootPart.Position, target.HumanoidRootPart.Position)
+                    
+                    if path.Status == Enum.PathStatus.Success then
+                        local waypoints = path:GetWaypoints()
+                        for i = 1, math.min(#waypoints, 3) do -- Only walk to the first few waypoints then re-check target
+                            if not _G.SafeWalk then break end
+                            local wp = waypoints[i]
+                            LocalPlayer.Character.Humanoid:MoveTo(wp.Position)
+                            if wp.Action == Enum.PathWaypointAction.Jump then LocalPlayer.Character.Humanoid.Jump = true end
+                            LocalPlayer.Character.Humanoid.MoveToFinished:Wait(0.2)
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.1) -- Refresh pathfinding destination frequently
+    end
+end)
+
+-- 5. MINIMALIST UI
 local function CreateUI()
     local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("DungeonMasterV7") then parent.DungeonMasterV7:Destroy() end
-
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "DungeonMasterV7"
-    local main = Instance.new("Frame", sg)
-    main.Size = UDim2.new(0, 160, 0, 110); main.Position = UDim2.new(0, 50, 0.5, 0); main.BackgroundColor3 = Color3.fromRGB(30, 30, 30); main.Active = true; main.Draggable = true
-
-    local function btn(txt, pos, var)
-        local b = Instance.new("TextButton", main)
-        b.Size = UDim2.new(1, -10, 0, 45); b.Position = pos; b.Text = txt; b.BackgroundColor3 = Color3.fromRGB(150, 0, 0); b.TextColor3 = Color3.new(1, 1, 1)
+    if parent:FindFirstChild("DungeonSplit_V7") then parent.DungeonSplit_V7:Destroy() end
+    local sg = Instance.new("ScreenGui", parent); sg.Name = "DungeonSplit_V7"
+    local f = Instance.new("Frame", sg); f.Size = UDim2.new(0, 150, 0, 100); f.Position = UDim2.new(0, 50, 0.4, 0); f.BackgroundColor3 = Color3.new(0,0,0)
+    
+    local function makeBtn(txt, pos, var)
+        local b = Instance.new("TextButton", f); b.Size = UDim2.new(1, -10, 0, 40); b.Position = pos; b.Text = txt; b.BackgroundColor3 = Color3.new(0.6, 0, 0); b.TextColor3 = Color3.new(1,1,1)
         b.MouseButton1Click:Connect(function()
             _G[var] = not _G[var]
-            b.BackgroundColor3 = _G[var] and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+            b.BackgroundColor3 = _G[var] and Color3.new(0, 0.6, 0) or Color3.new(0.6, 0, 0)
         end)
     end
-
-    btn("AUTO ATTACK", UDim2.new(0, 5, 0, 5), "AutoAttack")
-    btn("SAFE FARM", UDim2.new(0, 5, 0, 55), "SafeWalk")
+    makeBtn("AUTO ATTACK", UDim2.new(0, 5, 0, 5), "AutoAttack")
+    makeBtn("SAFE WALK", UDim2.new(0, 5, 0, 50), "SafeWalk")
 end
 
 CreateUI()
