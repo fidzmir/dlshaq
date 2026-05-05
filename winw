@@ -1,60 +1,46 @@
--- [[ CONFIG ]]
--- I've swapped "discord.com" for "hooks.hyra.io" which is a standard proxy
-local RawWebhook = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
-local ProxyURL = RawWebhook:gsub("discord.com", "hooks.hyra.io")
+-- [[ WEBHOOK ]]
+local url = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
-local httpRequest = (request or http_request or (http and http.request) or (syn and syn.request))
-local hookMethod = (hookmetamethod or (detour and detour.hook_metamethod))
+-- [[ DELTA COMPATIBILITY CHECK ]]
+local requestFunc = request or http_request or (http and http.request)
+local hook = hookmetamethod
 
-local function sendToDiscord(title, remoteName, data)
+if not requestFunc then print("FATAL: No request function found") return end
+if not hook then print("FATAL: No hookmetamethod found") return end
+
+-- [[ THE SEND FUNCTION ]]
+local function post(name, msg)
     local payload = {
-        Url = ProxyURL,
+        Url = url,
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = game:GetService("HttpService"):JSONEncode({
-            ["embeds"] = {{
-                ["title"] = title,
-                ["description"] = "Remote: `" .. tostring(remoteName) .. "`",
-                ["color"] = 0x00ff00,
-                ["fields"] = {
-                    {["name"] = "Data", ["value"] = "```" .. tostring(data) .. "
-```"}
-                }
-            }}
+            ["content"] = "🚩 **Remote:** " .. name .. "\n**Data:** " .. tostring(msg)
         })
     }
-    
-    -- Attempting the request
+    -- Run in background so it doesn't freeze your game
     task.spawn(function()
-        local res = httpRequest(payload)
-        if res then
-            print("📡 Discord Response Code: " .. tostring(res.StatusCode))
-        else
-            warn("📡 No response from Proxy.")
-        end
+        requestFunc(payload)
     end)
 end
 
--- 1. IMMEDIATE TEST (Check Discord as soon as you execute)
-print("🧪 Sending Test Packet...")
-sendToDiscord("🚀 CONNECTION TEST", "SYSTEM", "If you see this, the Proxy is working!")
+-- [[ IMMEDIATE START TEST ]]
+print("Testing Webhook...")
+post("STARTUP_CHECK", "Delta Logger is running!")
 
--- 2. THE HOOK
-if hookMethod then
-    local oldNamecall
-    oldNamecall = hookMethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        local args = {...}
+-- [[ THE HOOK ]]
+local old
+old = hook(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
 
-        if method == "FireServer" or method == "InvokeServer" then
-            -- Log the first argument for simplicity
-            local firstArg = tostring(args[1]) or "No Args"
-            sendToDiscord("📡 Remote Intercepted", self.Name, firstArg)
-        end
+    if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
+        -- We only log the FIRST argument to keep it simple and avoid errors
+        local data = args[1]
+        post(tostring(self.Name), tostring(data))
+    end
 
-        return oldNamecall(self, ...)
-    end)
-    print("✅ Hook Applied.")
-else
-    warn("❌ Your executor does not support hooking.")
-end
+    return old(self, ...)
+end)
+
+print("✅ Hook is locked in. Go press a button in-game!")
