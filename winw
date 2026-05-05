@@ -1,4 +1,3 @@
--- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local PathfindingService = game:GetService("PathfindingService")
@@ -7,30 +6,24 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 
--- Config
 _G.AutoAttack = false
 _G.SafeWalk = false
-local ATTACK_RANGE = 200
-local ATTACK_SPEED = 0.015 -- Your original fast speed
 
--- 1. REMOTE HUNTER
-local function GetCurrentRemote()
-    local bestRemote = nil
-    local highestVersion = -1
+-- 1. STABLE REMOTE HUNTER
+local function GetAttackRemote()
+    local best = nil
+    local high = -1
     for _, v in pairs(EventsFolder:GetChildren()) do
         if v.Name:find("Attack") then
-            local version = tonumber(v.Name:match("%d+")) or 0
-            if version > highestVersion then
-                highestVersion = version
-                bestRemote = v
-            end
+            local n = tonumber(v.Name:match("%d+")) or 0
+            if n > high then high = n; best = v end
         end
     end
-    return bestRemote or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
+    return best or EventsFolder:FindFirstChild("Attack")
 end
 
--- 2. NEAREST TARGET FINDER
-local function GetNearest()
+-- 2. IMPROVED TARGET FINDER
+local function GetNearestEnemy()
     local charFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("Mobs") or workspace
     local closest, dist = nil, math.huge
     for _, e in pairs(charFolder:GetChildren()) do
@@ -42,68 +35,59 @@ local function GetNearest()
     return closest
 end
 
--- 3. TASK 1: INDEPENDENT COMBAT LOOP (Always Running)
+-- 3. ATTACK THREAD (Isolated from Movement)
 task.spawn(function()
     while true do
         if _G.AutoAttack then
-            local target = GetNearest()
-            local remote = GetCurrentRemote()
+            local target = GetNearestEnemy()
+            local remote = GetAttackRemote()
+            
             if target and remote then
-                local d = (LocalPlayer.Character.HumanoidRootPart.Position - target.HumanoidRootPart.Position).Magnitude
-                if d <= ATTACK_RANGE then
-                    remote:FireServer(5, 1, target)
-                end
+                -- This tries your original method PLUS the modern method
+                pcall(function()
+                    -- Your original:
+                    remote:FireServer(5, 1, target) 
+                    -- Modern fallback (common in new dungeon games):
+                    remote:FireServer(target) 
+                    -- HRP fallback:
+                    if target:FindFirstChild("HumanoidRootPart") then
+                        remote:FireServer(target.HumanoidRootPart)
+                    end
+                end)
             end
         end
-        task.wait(ATTACK_SPEED) -- This fires independent of movement
+        task.wait(0.015) -- High speed attack
     end
 end)
 
--- 4. TASK 2: INDEPENDENT MOVEMENT LOOP (Always Running)
+-- 4. MOVEMENT THREAD (Independent)
 task.spawn(function()
     while true do
         if _G.SafeWalk then
-            local target = GetNearest()
+            local target = GetNearestEnemy()
             if target and target:FindFirstChild("HumanoidRootPart") then
                 local d = (LocalPlayer.Character.HumanoidRootPart.Position - target.HumanoidRootPart.Position).Magnitude
                 if d > 10 then
-                    -- Pathfinding logic
-                    local path = PathfindingService:CreatePath({AgentCanJump = true})
-                    path:ComputeAsync(LocalPlayer.Character.HumanoidRootPart.Position, target.HumanoidRootPart.Position)
-                    
-                    if path.Status == Enum.PathStatus.Success then
-                        local waypoints = path:GetWaypoints()
-                        for i = 1, math.min(#waypoints, 3) do -- Only walk to the first few waypoints then re-check target
-                            if not _G.SafeWalk then break end
-                            local wp = waypoints[i]
-                            LocalPlayer.Character.Humanoid:MoveTo(wp.Position)
-                            if wp.Action == Enum.PathWaypointAction.Jump then LocalPlayer.Character.Humanoid.Jump = true end
-                            LocalPlayer.Character.Humanoid.MoveToFinished:Wait(0.2)
-                        end
-                    end
+                    -- Simple MoveTo for better responsiveness
+                    LocalPlayer.Character.Humanoid:MoveTo(target.HumanoidRootPart.Position)
                 end
             end
         end
-        task.wait(0.1) -- Refresh pathfinding destination frequently
+        task.wait(0.2)
     end
 end)
 
--- 5. MINIMALIST UI
-local function CreateUI()
-    local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-    if parent:FindFirstChild("DungeonSplit_V7") then parent.DungeonSplit_V7:Destroy() end
-    local sg = Instance.new("ScreenGui", parent); sg.Name = "DungeonSplit_V7"
-    local f = Instance.new("Frame", sg); f.Size = UDim2.new(0, 150, 0, 100); f.Position = UDim2.new(0, 50, 0.4, 0); f.BackgroundColor3 = Color3.new(0,0,0)
-    
-    local function makeBtn(txt, pos, var)
-        local b = Instance.new("TextButton", f); b.Size = UDim2.new(1, -10, 0, 40); b.Position = pos; b.Text = txt; b.BackgroundColor3 = Color3.new(0.6, 0, 0); b.TextColor3 = Color3.new(1,1,1)
-        b.MouseButton1Click:Connect(function()
-            _G[var] = not _G[var]
-            b.BackgroundColor3 = _G[var] and Color3.new(0, 0.6, 0) or Color3.new(0.6, 0, 0)
-        end)
-    end
-    makeBtn("AUTO ATTACK", UDim2.new(0, 5, 0, 5), "AutoAttack")
-    makeBtn("SAFE WALK", UDim2.new(0, 5, 0, 50), "SafeWalk")
+-- 5. SIMPLE UI
+local sg = Instance.new("ScreenGui", CoreGui:FindFirstChild("RobloxGui") or LocalPlayer.PlayerGui)
+local f = Instance.new("Frame", sg); f.Size = UDim2.new(0, 150, 0, 100); f.Position = UDim2.new(0, 50, 0.5, 0); f.BackgroundColor3 = Color3.new(0,0,0)
+
+local function makeBtn(txt, pos, var)
+    local b = Instance.new("TextButton", f); b.Size = UDim2.new(1, -10, 0, 40); b.Position = pos; b.Text = txt; b.BackgroundColor3 = Color3.new(0.6, 0, 0); b.TextColor3 = Color3.new(1,1,1)
+    b.MouseButton1Click:Connect(function()
+        _G[var] = not _G[var]
+        b.BackgroundColor3 = _G[var] and Color3.new(0, 0.6, 0) or Color3.new(0.6, 0, 0)
+    end)
 end
 
-CreateUI()
+makeBtn("ATTACK ON/OFF", UDim2.new(0, 5, 0, 5), "AutoAttack")
+makeBtn("WALK ON/OFF", UDim2.new(0, 5, 0, 50), "SafeWalk")
