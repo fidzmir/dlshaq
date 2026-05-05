@@ -1,100 +1,64 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local CoreGui = game:GetService("CoreGui")
+local WebhookURL = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
-local LocalPlayer = Players.LocalPlayer
-local EventsFolder = ReplicatedStorage:WaitForChild("Events")
-
-_G.AutoAttack = false
-_G.SafeWalk = false
-
--- Helper: Get the closest Mob (Fixed with FindFirstChild)
-local function GetMob()
-    local charFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("Mobs") or workspace
-    local closest, dist = nil, math.huge
+local function sendToDiscord(remoteName, args)
+    -- Formatting the arguments into a readable string
+    local dataString = ""
+    for i, v in pairs(args) do
+        dataString = dataString .. "[" .. i .. "]: " .. tostring(v) .. "\n"
+    end
     
-    for _, e in pairs(charFolder:GetChildren()) do
-        -- Fix: Ensure it is a model and has a Humanoid/RootPart before checking health
-        local hum = e:FindFirstChild("Humanoid")
-        local hrp = e:FindFirstChild("HumanoidRootPart")
-        
-        if hum and hrp and hum.Health > 0 and not Players:GetPlayerFromCharacter(e) then
-            local d = (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
-            if d < dist then 
-                dist = d
-                closest = e 
-            end
-        end
-    end
-    return closest
-end
+    if dataString == "" then dataString = "No arguments sent." end
 
--- ATTACK LOOP
-task.spawn(function()
-    while true do
-        task.wait(0.015)
-        if _G.AutoAttack then
-            local target = GetMob()
-            if target then
-                local remote = EventsFolder:FindFirstChild("AttackV3") or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
-                if remote then
-                    pcall(function()
-                        remote:FireServer(5, 1, target)
-                        remote:FireServer(target)
-                    end)
-                end
-                -- Auto-Equip Tool
-                local tool = LocalPlayer.Backpack:FindFirstOfClass("Tool")
-                if tool and not LocalPlayer.Character:FindFirstOfClass("Tool") then
-                    LocalPlayer.Character.Humanoid:EquipTool(tool)
-                end
-            end
-        end
-    end
-end)
+    -- The payload for Discord
+    local payload = {
+        Url = WebhookURL,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = game:GetService("HttpService"):JSONEncode({
+            ["embeds"] = {{
+                ["title"] = "📡 Remote Intercepted",
+                ["color"] = 0x2b2d31, -- Sleek dark grey
+                ["fields"] = {
+                    {
+                        ["name"] = "Remote Object",
+                        ["value"] = "```" .. remoteName .. "
+```",
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = "Data (Arguments)",
+                        ["value"] = "```lua\n" .. dataString .. "\n```"
+                    }
+                },
+                ["timestamp"] = DateTime.now():ToIsoDate()
+            }}
+        })
+    }
 
--- MOVEMENT LOOP
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-        if _G.SafeWalk then
-            local target = GetMob()
-            if target then
-                local hrp = target:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    LocalPlayer.Character.Humanoid:MoveTo(hrp.Position)
-                end
-            end
-        end
-    end
-end)
-
--- UI SETUP
-local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
-if parent:FindFirstChild("DungeonMasterV11") then parent.DungeonMasterV11:Destroy() end
-
-local sg = Instance.new("ScreenGui", parent)
-sg.Name = "DungeonMasterV11"
-
-local f = Instance.new("Frame", sg)
-f.Size = UDim2.new(0, 150, 0, 110)
-f.Position = UDim2.new(0, 50, 0.4, 0)
-f.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-f.Active = true
-f.Draggable = true
-
-local function makeBtn(txt, pos, var)
-    local b = Instance.new("TextButton", f)
-    b.Size = UDim2.new(1, -10, 0, 45)
-    b.Position = pos
-    b.Text = txt
-    b.BackgroundColor3 = Color3.fromRGB(130, 20, 20)
-    b.TextColor3 = Color3.new(1, 1, 1)
-    b.MouseButton1Click:Connect(function()
-        _G[var] = not _G[var]
-        b.BackgroundColor3 = _G[var] and Color3.fromRGB(20, 130, 20) or Color3.fromRGB(130, 20, 20)
+    -- Using the executor's request function
+    local success, response = pcall(function()
+        return request(payload)
     end)
+
+    if not success then
+        warn("Failed to send to Discord: " .. tostring(response))
+    end
 end
 
-makeBtn("ATTACK", UDim2.new(0, 5, 0, 5), "AutoAttack")
-makeBtn("AUTO FARM", UDim2.new(0, 5, 0, 55), "SafeWalk")
+-- Hooking logic
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    if method == "FireServer" or method == "InvokeServer" then
+        -- Send the data to your webhook asynchronously
+        task.spawn(sendToDiscord, self.Name, args)
+    end
+
+    return oldNamecall(self, ...)
+end)
+
+print("✅ Map Data Dump Module Active - Logging to Discord")
