@@ -1,4 +1,3 @@
--- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -6,81 +5,88 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 
--- Global Toggles
 _G.AutoAttack = false
 _G.SafeWalk = false
 
--- 1. Helper: Find the Mob
+-- Helper: Get the closest Mob
 local function GetMob()
     local charFolder = workspace:FindFirstChild("Characters") or workspace:FindFirstChild("Mobs") or workspace
     local closest, dist = nil, math.huge
     for _, e in pairs(charFolder:GetChildren()) do
         if e:FindFirstChild("Humanoid") and e.Humanoid.Health > 0 and not Players:GetPlayerFromCharacter(e) then
             local d = (LocalPlayer.Character.HumanoidRootPart.Position - e.HumanoidRootPart.Position).Magnitude
-            if d < dist then dist = d; closest = e end
+            if d < dist then 
+                dist = d
+                closest = e 
+            end
         end
     end
     return closest
 end
 
--- 2. Helper: Auto-Equip Tool (Crucial for many games)
-local function EquipTool()
-    local tool = LocalPlayer.Backpack:FindFirstOfClass("Tool")
-    if tool and not LocalPlayer.Character:FindFirstOfClass("Tool") then
-        LocalPlayer.Character.Humanoid:EquipTool(tool)
-    end
-end
-
--- 3. ATTACK ENGINE (Runs 100% solo)
+-- ATTACK LOOP
 task.spawn(function()
     while true do
-        task.wait(0.015) -- High speed
+        task.wait(0.015)
         if _G.AutoAttack then
             local target = GetMob()
             if target then
-                local remote = EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
-                -- Try all common dungeon remote patterns
+                local remote = EventsFolder:FindFirstChild("AttackV3") or EventsFolder:FindFirstChild("AttackV2") or EventsFolder:FindFirstChild("Attack")
                 if remote then
                     pcall(function()
-                        remote:FireServer(5, 1, target) -- Your original
-                        remote:FireServer(target)       -- Modern 1
-                        remote:FireServer(target.HumanoidRootPart) -- Modern 2
+                        remote:FireServer(5, 1, target)
+                        remote:FireServer(target)
                     end)
                 end
-                EquipTool()
+                -- Auto-Equip Tool
+                local tool = LocalPlayer.Backpack:FindFirstOfClass("Tool")
+                if tool and not LocalPlayer.Character:FindFirstOfClass("Tool") then
+                    LocalPlayer.Character.Humanoid:EquipTool(tool)
+                end
             end
         end
     end
 end)
 
--- 4. MOVEMENT ENGINE (Runs 100% solo)
+-- MOVEMENT LOOP
 task.spawn(function()
     while true do
-        task.wait(0.2) -- Path recalculation rate
+        task.wait(0.1)
         if _G.SafeWalk then
             local target = GetMob()
             if target and target:FindFirstChild("HumanoidRootPart") then
-                local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    -- Simple MoveTo is safer and doesn't "block" code like Pathfinding
-                    LocalPlayer.Character.Humanoid:MoveTo(target.HumanoidRootPart.Position)
-                end
+                LocalPlayer.Character.Humanoid:MoveTo(target.HumanoidRootPart.Position)
             end
         end
     end
 end)
 
--- 5. MINIMALIST UI
-local sg = Instance.new("ScreenGui", CoreGui:FindFirstChild("RobloxGui") or LocalPlayer.PlayerGui)
-local f = Instance.new("Frame", sg); f.Size = UDim2.new(0, 160, 0, 110); f.Position = UDim2.new(0, 40, 0.4, 0); f.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+-- UI SETUP
+local parent = CoreGui:FindFirstChild("RobloxGui") or LocalPlayer:WaitForChild("PlayerGui")
+if parent:FindFirstChild("DungeonMasterV10") then parent.DungeonMasterV10:Destroy() end
+
+local sg = Instance.new("ScreenGui", parent)
+sg.Name = "DungeonMasterV10"
+
+local f = Instance.new("Frame", sg)
+f.Size = UDim2.new(0, 150, 0, 110)
+f.Position = UDim2.new(0, 50, 0.4, 0)
+f.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+f.Active = true
+f.Draggable = true
 
 local function makeBtn(txt, pos, var)
-    local b = Instance.new("TextButton", f); b.Size = UDim2.new(1, -10, 0, 45); b.Position = pos; b.Text = txt; b.BackgroundColor3 = Color3.fromRGB(130, 20, 20); b.TextColor3 = Color3.new(1,1,1)
+    local b = Instance.new("TextButton", f)
+    b.Size = UDim2.new(1, -10, 0, 45)
+    b.Position = pos
+    b.Text = txt
+    b.BackgroundColor3 = Color3.fromRGB(130, 20, 20)
+    b.TextColor3 = Color3.new(1, 1, 1)
     b.MouseButton1Click:Connect(function()
         _G[var] = not _G[var]
         b.BackgroundColor3 = _G[var] and Color3.fromRGB(20, 130, 20) or Color3.fromRGB(130, 20, 20)
     end)
 end
 
-makeBtn("ATTACK ONLY", UDim2.new(0, 5, 0, 5), "AutoAttack")
-makeBtn("AUTO FARM (WALK)", UDim2.new(0, 5, 0, 55), "SafeWalk")
+makeBtn("ATTACK", UDim2.new(0, 5, 0, 5), "AutoAttack")
+makeBtn("AUTO FARM", UDim2.new(0, 5, 0, 55), "SafeWalk")
