@@ -1,73 +1,78 @@
--- WEBHOOK CONFIG
+-- [[ CONFIGURATION ]]
 local WebhookURL = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
--- 🔍 1. FINDING THE REQUEST FUNCTION
--- We check every possible name an executor might use
+-- [[ UNIVERSAL FUNCTION CHECK ]]
 local httpRequest = (request or http_request or (http and http.request) or (syn and syn.request))
-
--- 🔍 2. FINDING THE HOOK FUNCTION
 local hookMethod = (hookmetamethod or (detour and detour.hook_metamethod))
 
--- 🛡️ SAFETY CHECK: If the executor is missing features, tell the console
-if not httpRequest then 
-    warn("❌ Error: Your executor does not support HTTP Requests.") 
-    return 
-end
-if not hookMethod then 
-    warn("❌ Error: Your executor does not support HookMetaMethod.") 
-    return 
+if not httpRequest then warn("❌ Executor does not support HTTP Requests") return end
+if not hookMethod then warn("❌ Executor does not support Metatable Hooking") return end
+
+-- [[ HELPER: FORMAT DATA FOR DISCORD ]]
+local function formatArgs(args)
+    local result = ""
+    for i, v in pairs(args) do
+        local valType = typeof(v)
+        local displayVal = tostring(v)
+        
+        if valType == "Instance" then
+            displayVal = v:GetFullName()
+        elseif valType == "table" then
+            displayVal = "{...} (Table)"
+        end
+        
+        result = result .. "[" .. i .. "] (" .. valType .. "): " .. displayVal .. "\n"
+    end
+    return result ~= "" and result or "No arguments"
 end
 
-local function sendToDiscord(title, remoteName, dataString)
+-- [[ DISCORD SENDER ]]
+local function sendToDiscord(remoteName, remoteType, args)
+    local dataString = formatArgs(args)
+    
     local payload = {
         Url = WebhookURL,
         Method = "POST",
         Headers = { ["Content-Type"] = "application/json" },
         Body = game:GetService("HttpService"):JSONEncode({
+            ["username"] = "Map Data Dump Bot",
             ["embeds"] = {{
-                ["title"] = title,
-                ["color"] = 0x00ff00, -- Green for success
+                ["title"] = "🛰️ Remote Intercepted",
+                ["description"] = "Captured communication between Client and Server.",
+                ["color"] = 0x5865F2, -- Discord Blurple
                 ["fields"] = {
-                    { ["name"] = "Remote", ["value"] = "```" .. tostring(remoteName) .. "
-```" },
-                    { ["name"] = "Data", ["value"] = "```lua\n" .. tostring(dataString) .. "\n```" }
+                    { ["name"] = "Remote Name", ["value"] = "```" .. remoteName .. "```", ["inline"] = true },
+                    { ["name"] = "Type", ["value"] = "```" .. remoteType .. "```", ["inline"] = true },
+                    { ["name"] = "Arguments Sent", ["value"] = "```lua\n" .. dataString .. "\n
+```" }
                 },
-                ["footer"] = { ["text"] = "School Project Test • " .. os.date("%X") }
+                ["footer"] = { ["text"] = "School Project • " .. os.date("%X") }
             }}
         })
     }
 
-    -- Wrap in pcall so it doesn't crash the game if Discord is slow
-    pcall(function()
-        httpRequest(payload)
+    task.spawn(function()
+        local success, err = pcall(function()
+            return httpRequest(payload)
+        end)
+        if not success then warn("Discord Log Fail: " .. tostring(err)) end
     end)
 end
 
--- 🛠 TEST FIRE: Check if Discord receives this right now
-task.spawn(function()
-    sendToDiscord("✅ Test Active", "INITIAL_START", "The script is now running and hooked!")
-end)
-
--- 🎣 THE HOOK
+-- [[ THE MAIN HOOK ]]
 local oldNamecall
 oldNamecall = hookMethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
 
     if method == "FireServer" or method == "InvokeServer" then
-        -- Convert arguments to string safely
-        local success, dataStr = pcall(function()
-            local str = ""
-            for i, v in pairs(args) do
-                str = str .. "[" .. i .. "]: " .. tostring(v) .. "\n"
-            end
-            return str ~= "" and str or "No Arguments"
-        end)
-        
-        task.spawn(sendToDiscord, "📡 Remote Fired", self.Name, dataStr or "Error reading args")
+        -- Send data to Discord without lagging the game
+        sendToDiscord(self.Name, method, args)
     end
 
     return oldNamecall(self, ...)
 end)
 
-print("🚀 Universal Logger Loaded. Check Discord!")
+-- [[ TEST ON STARTUP ]]
+print("🚀 Logger Active. Checking connection...")
+sendToDiscord("SYSTEM_CHECK", "Status", {"If you see this, the logger is working perfectly!"})
