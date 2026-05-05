@@ -1,8 +1,22 @@
--- YOUR WEBHOOK URL
+-- WEBHOOK CONFIG
 local WebhookURL = "https://discord.com/api/webhooks/1489564311423815720/95RTxCNmEopgkqiRY1n_jH5hxMFuNqCS5OYxppId3UE_QxdJWgXuMPbVoubeVDhp-AT6"
 
--- UNIVERSAL REQUEST FUNCTION (Works for Delta, Xeno, Buni, etc.)
-local httpRequest = (syn and syn.request) or (http and http.request) or http_request or request
+-- 🔍 1. FINDING THE REQUEST FUNCTION
+-- We check every possible name an executor might use
+local httpRequest = (request or http_request or (http and http.request) or (syn and syn.request))
+
+-- 🔍 2. FINDING THE HOOK FUNCTION
+local hookMethod = (hookmetamethod or (detour and detour.hook_metamethod))
+
+-- 🛡️ SAFETY CHECK: If the executor is missing features, tell the console
+if not httpRequest then 
+    warn("❌ Error: Your executor does not support HTTP Requests.") 
+    return 
+end
+if not hookMethod then 
+    warn("❌ Error: Your executor does not support HookMetaMethod.") 
+    return 
+end
 
 local function sendToDiscord(title, remoteName, dataString)
     local payload = {
@@ -12,51 +26,48 @@ local function sendToDiscord(title, remoteName, dataString)
         Body = game:GetService("HttpService"):JSONEncode({
             ["embeds"] = {{
                 ["title"] = title,
-                ["color"] = 0xffa500, -- Orange for testing
+                ["color"] = 0x00ff00, -- Green for success
                 ["fields"] = {
-                    { ["name"] = "Target", ["value"] = "```" .. remoteName .. "```" },
-                    { ["name"] = "Data", ["value"] = "```lua\n" .. dataString .. "\n
-```" }
+                    { ["name"] = "Remote", ["value"] = "```" .. tostring(remoteName) .. "
+```" },
+                    { ["name"] = "Data", ["value"] = "```lua\n" .. tostring(dataString) .. "\n```" }
                 },
-                ["footer"] = { ["text"] = "Timestamp: " .. os.date("%X") }
+                ["footer"] = { ["text"] = "School Project Test • " .. os.date("%X") }
             }}
         })
     }
 
-    local success, response = pcall(function()
-        return httpRequest(payload)
+    -- Wrap in pcall so it doesn't crash the game if Discord is slow
+    pcall(function()
+        httpRequest(payload)
     end)
-
-    if not success then
-        warn("❌ Logger Error: " .. tostring(response))
-    else
-        print("✅ Log Sent to Discord (Status: " .. tostring(response.StatusCode) .. ")")
-    end
 end
 
--- 🛠 TEST 1: IMMEDIATE CONNECTION TEST
--- This runs as soon as you execute the script to see if the webhook works.
-print("🔍 Testing Discord Connection...")
-task.spawn(sendToDiscord, "🛠 Connection Test", "SYSTEM_CHECK", "If you see this, your Webhook URL is working!")
+-- 🛠 TEST FIRE: Check if Discord receives this right now
+task.spawn(function()
+    sendToDiscord("✅ Test Active", "INITIAL_START", "The script is now running and hooked!")
+end)
 
--- 🛠 TEST 2: ACTIVE HOOKING
+-- 🎣 THE HOOK
 local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+oldNamecall = hookMethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
 
-    -- We only care about things going to the server
     if method == "FireServer" or method == "InvokeServer" then
-        local dataStr = ""
-        for i, v in pairs(args) do
-            dataStr = dataStr .. "[" .. i .. "]: " .. tostring(v) .. "\n"
-        end
+        -- Convert arguments to string safely
+        local success, dataStr = pcall(function()
+            local str = ""
+            for i, v in pairs(args) do
+                str = str .. "[" .. i .. "]: " .. tostring(v) .. "\n"
+            end
+            return str ~= "" and str or "No Arguments"
+        end)
         
-        -- Send data to Discord
-        task.spawn(sendToDiscord, "📡 Remote Fired", self.Name, dataStr)
+        task.spawn(sendToDiscord, "📡 Remote Fired", self.Name, dataStr or "Error reading args")
     end
 
     return oldNamecall(self, ...)
 end)
 
-print("🚀 Logger Active. Fire any remote in-game to see logs.")
+print("🚀 Universal Logger Loaded. Check Discord!")
